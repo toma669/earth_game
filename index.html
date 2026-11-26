@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PLANET BREAKER - 3D地球破壊カオスゲーム</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=M+PLUS+Rounded+1c:wght@700;900&display=swap" rel="stylesheet">
+    <style>
+        * {
+            user-select: none;
+            -webkit-user-select: none;
+            box-sizing: border-box;
+        }
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #030308;
+            font-family: 'M PLUS Rounded 1c', sans-serif;
+            touch-action: none;
+        }
+        #canvas-container {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+        .font-arcade {
+            font-family: 'Black Ops One', cursive;
+        }
+        @keyframes pulse-glow {
+            0%, 100% { transform: scale(1); filter: drop-shadow(0 0 12px rgba(255, 0, 128, 0.8)); }
+            50% { transform: scale(1.05); filter: drop-shadow(0 0 24px rgba(0, 243, 255, 1)); }
+        }
+        .animate-pulse-glow {
+            animation: pulse-glow 1.5s infinite ease-in-out;
+        }
+        @keyframes rainbow-border {
+            0% { border-color: #ff0055; box-shadow: 0 0 20px #ff0055; }
+            33% { border-color: #00f3ff; box-shadow: 0 0 20px #00f3ff; }
+            66% { border-color: #ccff00; box-shadow: 0 0 20px #ccff00; }
+            100% { border-color: #ff0055; box-shadow: 0 0 20px #ff0055; }
+        }
+        .fever-active {
+            animation: rainbow-border 0.4s linear infinite !important;
+        }
+        @keyframes float-up {
+            0% { opacity: 1; transform: translate(-50%, -50%) scale(0.6); }
+            20% { opacity: 1; transform: translate(-50%, -80%) scale(1.2); }
+            100% { opacity: 0; transform: translate(-50%, -180%) scale(0.9); }
+        }
+        .damage-popup {
+            position: fixed;
+            pointer-events: none;
+            font-family: 'Black Ops One', 'M PLUS Rounded 1c', sans-serif;
+            font-weight: 900;
+            z-index: 40;
+            animation: float-up 0.85s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            text-shadow: 0 3px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000;
+            white-space: nowrap;
+        }
+        .neon-text-pink { text-shadow: 0 0 10px #ff007f, 0 0 20px #ff007f; }
+        .neon-text-cyan { text-shadow: 0 0 10px #00f3ff, 0 0 20px #00f3ff; }
+        .neon-text-yellow { text-shadow: 0 0 10px #ffe600, 0 0 20px #ff8800; }
+
+        .weapon-btn.active {
+            transform: translateY(-8px) scale(1.08);
+            border-color: #00f3ff;
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.9), inset 0 0 12px rgba(0, 243, 255, 0.5);
+            background: linear-gradient(135deg, rgba(20, 30, 60, 0.95), rgba(60, 10, 80, 0.95));
+        }
+        #flash-overlay {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 30;
+            opacity: 0;
+            transition: opacity 0.1s ease-out;
+        }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.4); }
+        ::-webkit-scrollbar-thumb { background: rgba(0, 243, 255, 0.5); border-radius: 999px; }
+    </style>
+</head>
+<body class="text-white select-none">
+
+    <!-- 3Dキャンバス -->
+    <div id="canvas-container"></div>
+
+    <!-- フラッシュ演出 -->
+    <div id="flash-overlay" class="bg-white"></div>
+
+    <!-- スタート画面（ホーム画面） -->
+    <div id="start-screen" class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/80 backdrop-blur-md p-4 text-center">
+        <div class="mb-2 px-4 py-1 rounded-full bg-gradient-to-r from-pink-600 to-cyan-500 text-xs font-black tracking-widest uppercase">
+            SATELLITE TERRAIN + MULTI-LAYER CORE DESTRUCTION
+        </div>
+        <h1 class="font-arcade text-4xl sm:text-7xl tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-pink-500 to-yellow-400 drop-shadow-[0_5px_15px_rgba(255,0,127,0.6)] mb-2">
+            PLANET BREAKER
+        </h1>
+        <p class="text-gray-300 text-sm sm:text-lg max-w-md mb-4 font-bold">
+            超高精細Google Earth風地球儀を削り込み、<br>地殻・マントル・コアの多層構造ごと粉砕せよ！
+        </p>
+
+        <!-- セーブ復元通知バナー -->
+        <div id="save-status-banner" class="hidden mb-4 px-4 py-1.5 rounded-xl bg-emerald-950/90 border border-emerald-400 text-emerald-300 text-xs font-black">
+            💾 セーブデータ読み込み中...
+        </div>
+
+        <!-- ホーム画面レベル選択セレクター -->
+        <div class="mb-5 bg-gray-900/90 border-2 border-cyan-500/70 rounded-2xl px-5 py-3 flex flex-col items-center shadow-[0_0_20px_rgba(0,243,255,0.3)]">
+            <span class="text-[11px] text-cyan-300 font-bold tracking-wider mb-1">SELECT TARGET WORLD (到達済レベルから選択)</span>
+            <div class="flex items-center gap-4">
+                <button type="button" id="home-world-prev" class="w-9 h-9 rounded-xl bg-gray-800 hover:bg-gray-700 border border-cyan-400/50 text-white font-black text-lg cursor-pointer disabled:opacity-30">
+                    ◀
+                </button>
+                <div class="text-center min-w-[165px]">
+                    <div id="home-world-label" class="font-arcade text-2xl sm:text-3xl text-yellow-400 neon-text-yellow">WORLD 1</div>
+                    <div id="home-world-spec" class="text-[11px] text-gray-300 font-bold">HP 1.0x / 装甲硬度 1.00x</div>
+                </div>
+                <button type="button" id="home-world-next" class="w-9 h-9 rounded-xl bg-gray-800 hover:bg-gray-700 border border-cyan-400/50 text-white font-black text-lg cursor-pointer disabled:opacity-30">
+                    ▶
+                </button>
+            </div>
+        </div>
+
+        <button id="start-btn" class="animate-pulse-glow px-10 py-5 rounded-2xl bg-gradient-to-r from-pink-600 via-purple-600 to-cyan-500 text-white font-black text-xl sm:text-3xl tracking-wider shadow-[0_0_40px_rgba(255,0,127,0.8)] border-2 border-white cursor-pointer">
+            WORLD 1 の破壊を開始 🚀💥
+        </button>
+        <p class="mt-4 text-xs text-cyan-300 font-bold">
+            ※音が出ます！タップ/クリック/長押しで破壊、ドラッグで地球を360°回転！
+        </p>
+    </div>
+
+    <!-- メインHUD -->
+    <div id="hud" class="hidden fixed inset-0 z-20 pointer-events-none flex flex-col justify-between p-3 sm:p-5">
+        <!-- 上部ステータスバー -->
+        <div class="flex flex-col gap-2 w-full max-w-4xl mx-auto">
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+                <!-- ワールドレベル＆通貨 -->
+                <div class="flex items-center gap-2 flex-wrap">
+                    <div class="bg-black/75 border border-purple-500/70 rounded-2xl px-3 py-1.5 backdrop-blur-md">
+                        <div class="flex items-center gap-1.5">
+                            <span id="world-level-text" class="font-arcade text-base sm:text-xl text-purple-300">WORLD 1</span>
+                            <span id="planet-skin-badge" class="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/30 border border-cyan-400 text-cyan-200 font-black">🌍 地球</span>
+                        </div>
+                        <div id="armor-text" class="text-[10px] text-amber-300 font-black">🛡️ 装甲硬度 1.00x</div>
+                    </div>
+
+                    <!-- 🪙 コイン表示 -->
+                    <div class="bg-black/75 border border-yellow-400/70 rounded-2xl px-3 py-1.5 backdrop-blur-md flex items-center gap-1.5 shadow-[0_0_12px_rgba(255,215,0,0.3)]">
+                        <span class="text-lg">🪙</span>
+                        <div>
+                            <div class="text-[9px] text-yellow-300 font-bold leading-none">COINS</div>
+                            <div id="coin-text" class="font-arcade text-base sm:text-xl text-yellow-400 neon-text-yellow leading-tight">0</div>
+                        </div>
+                    </div>
+
+                    <!-- 💎 ダイヤモンド表示 -->
+                    <div class="bg-black/75 border border-cyan-400/70 rounded-2xl px-3 py-1.5 backdrop-blur-md flex items-center gap-1.5 shadow-[0_0_12px_rgba(0,243,255,0.3)]">
+                        <span class="text-lg">💎</span>
+                        <div>
+                            <div class="text-[9px] text-cyan-300 font-bold leading-none">DIAMONDS</div>
+                            <div id="diamond-text" class="font-arcade text-base sm:text-xl text-cyan-300 neon-text-cyan leading-tight">0</div>
+                        </div>
+                    </div>
+
+                    <!-- 🌟 転生ポイント(RP)表示 -->
+                    <div class="bg-black/75 border border-fuchsia-400/70 rounded-2xl px-3 py-1.5 backdrop-blur-md flex items-center gap-1.5 shadow-[0_0_12px_rgba(217,70,239,0.35)]">
+                        <span class="text-lg">🌟</span>
+                        <div>
+                            <div class="text-[9px] text-fuchsia-300 font-bold leading-none">REBIRTH RP</div>
+                            <div id="rp-text" class="font-arcade text-base sm:text-xl text-fuchsia-300 leading-tight">0</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- コンボカウンター -->
+                <div id="combo-box" class="bg-black/75 border border-pink-500/60 rounded-2xl px-3.5 py-1.5 backdrop-blur-md text-right transition-transform duration-75">
+                    <div class="text-[10px] text-pink-400 font-bold">COMBO</div>
+                    <div id="combo-text" class="font-arcade text-xl sm:text-3xl text-pink-500 neon-text-pink">0 HIT</div>
+                </div>
+            </div>
+
+            <!-- 地球HPゲージ -->
+            <div class="w-full bg-gray-900/90 border-2 border-cyan-500/70 rounded-2xl p-1.5 backdrop-blur-md shadow-[0_0_20px_rgba(0,243,255,0.3)]">
+                <div class="flex justify-between items-center px-2 mb-1 text-xs font-black">
+                    <span class="text-cyan-300 flex items-center gap-1">
+                        <span id="planet-hp-label">🌍 地球残存質量</span>
+                        <span id="save-indicator" class="text-[10px] text-emerald-400 opacity-0 transition-opacity">💾 SAVED</span>
+                    </span>
+                    <span id="hp-percent-text" class="text-white font-arcade text-sm">100.0%</span>
+                </div>
+                <div class="w-full h-4 sm:h-5 bg-gray-950 rounded-xl overflow-hidden relative">
+                    <div id="hp-bar" class="h-full w-full bg-gradient-to-r from-emerald-400 via-cyan-400 to-blue-500 transition-all duration-100 rounded-xl"></div>
+                </div>
+            </div>
+
+            <!-- フィーバーゲージ＆カオスイベント通知 -->
+            <div class="flex items-center gap-2">
+                <div class="flex-1 bg-black/70 border border-yellow-500/50 rounded-xl p-1.5 flex items-center gap-2">
+                    <span id="fever-label" class="text-xs font-black text-yellow-400 px-1 whitespace-nowrap">⚡ FEVER</span>
+                    <div class="flex-1 h-2.5 bg-gray-900 rounded-full overflow-hidden">
+                        <div id="fever-bar" class="h-full w-0 bg-gradient-to-r from-yellow-400 via-pink-500 to-cyan-400 transition-all duration-75"></div>
+                    </div>
+                </div>
+                <button id="chaos-event-btn" class="pointer-events-auto px-3 py-1.5 rounded-xl bg-gradient-to-r from-red-600 to-amber-500 border border-yellow-300 text-xs font-black shadow-[0_0_15px_rgba(255,100,0,0.8)] hover:scale-105 active:scale-95 transition whitespace-nowrap cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                    🎲 カオスガチャ
+                </button>
+            </div>
+        </div>
+
+        <!-- 中央イベントバナー -->
+        <div id="event-banner" class="hidden fixed top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 text-center pointer-events-none">
+            <div id="event-banner-text" class="font-arcade text-2xl sm:text-5xl text-yellow-300 neon-text-yellow tracking-wider bg-black/85 px-6 py-3 rounded-2xl border-2 border-yellow-400 shadow-2xl">
+                HYPER FEVER!!
+            </div>
+        </div>
+
+        <!-- 右側アクションドック -->
+        <div class="fixed right-3 top-1/2 -translate-y-1/2 flex flex-col gap-2 pointer-events-auto">
+            <button id="open-home-btn" class="p-2.5 rounded-xl bg-black/75 border border-cyan-500/60 text-cyan-300 text-xs font-black hover:border-white backdrop-blur-md shadow-lg flex flex-col items-center gap-0.5 cursor-pointer" title="ホーム画面へ戻る">
+                <span class="text-base">🏠</span>
+                <span class="text-[10px]">ホーム</span>
+            </button>
+            <button id="open-upgrade-btn" class="p-3 rounded-xl bg-gradient-to-b from-yellow-400 to-orange-500 border-2 border-white text-black text-xs font-black hover:scale-105 transition shadow-[0_0_20px_rgba(255,200,0,0.8)] flex flex-col items-center gap-1 cursor-pointer">
+                <span class="text-xl">⬆️</span>
+                <span>強化・転生</span>
+            </button>
+            <button id="toggle-rotate-btn" class="p-2.5 rounded-xl bg-black/75 border border-white/25 text-xs font-bold hover:border-cyan-400 backdrop-blur-md shadow-lg cursor-pointer">
+                🔄 自転ON
+            </button>
+            <button id="toggle-sound-btn" class="p-2.5 rounded-xl bg-black/75 border border-white/25 text-xs font-bold hover:border-pink-400 backdrop-blur-md shadow-lg cursor-pointer">
+                🔊 音ON
+            </button>
+        </div>
+
+        <!-- 下部武器ドック -->
+        <div class="w-full max-w-3xl mx-auto pointer-events-auto">
+            <div class="grid grid-cols-5 gap-1.5 sm:gap-3 bg-black/80 border border-white/20 p-2 rounded-2xl backdrop-blur-md shadow-2xl">
+                <button data-weapon="laser" class="weapon-btn active flex flex-col items-center justify-center p-2 rounded-xl border border-white/15 bg-gray-900/90 transition cursor-pointer">
+                    <span class="text-xl sm:text-2xl">🔦</span>
+                    <span class="text-[10px] sm:text-xs font-black text-cyan-300 mt-0.5">極太レーザー</span>
+                </button>
+                <button data-weapon="meteor" class="weapon-btn flex flex-col items-center justify-center p-2 rounded-xl border border-white/15 bg-gray-900/90 transition cursor-pointer">
+                    <span class="text-xl sm:text-2xl">☄️</span>
+                    <span class="text-[10px] sm:text-xs font-black text-orange-400 mt-0.5">小惑星メテオ</span>
+                </button>
+                <button data-weapon="blackhole" class="weapon-btn flex flex-col items-center justify-center p-2 rounded-xl border border-white/15 bg-gray-900/90 transition cursor-pointer">
+                    <span class="text-xl sm:text-2xl">🕳️</span>
+                    <span class="text-[10px] sm:text-xs font-black text-purple-400 mt-0.5">ブラックホール</span>
+                </button>
+                <button data-weapon="missile" class="weapon-btn flex flex-col items-center justify-center p-2 rounded-xl border border-white/15 bg-gray-900/90 transition cursor-pointer">
+                    <span class="text-xl sm:text-2xl">🚀</span>
+                    <span class="text-[10px] sm:text-xs font-black text-pink-400 mt-0.5">無限ミサイル</span>
+                </button>
+                <button data-weapon="slash" class="weapon-btn flex flex-col items-center justify-center p-2 rounded-xl border border-white/15 bg-gray-900/90 transition cursor-pointer">
+                    <span class="text-xl sm:text-2xl">⚔️</span>
+                    <span class="text-[10px] sm:text-xs font-black text-yellow-300 mt-0.5">次元斬スラッシュ</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 強化＆惑星スキン＆転生スキルツリーモーダル -->
+    <div id="upgrade-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-3 sm:p-4">
+        <div class="bg-gray-900 border-2 border-yellow-400 rounded-3xl max-w-2xl w-full p-4 sm:p-5 shadow-[0_0_50px_rgba(255,200,0,0.4)] max-h-[90vh] flex flex-col">
+            <!-- ヘッダー＆通貨 -->
+            <div class="flex justify-between items-center mb-3 pb-2 border-b border-white/15">
+                <div>
+                    <h2 class="text-lg sm:text-2xl font-black text-yellow-400">🛠️ 兵器強化 ・ 🪐 スキン ・ 🌌 転生ツリー</h2>
+                    <div class="flex items-center gap-3 sm:gap-4 text-xs font-black mt-1 flex-wrap">
+                        <span class="text-yellow-300">🪙: <span id="modal-coins" class="font-arcade text-sm sm:text-base">0</span></span>
+                        <span class="text-cyan-300">💎: <span id="modal-diamonds" class="font-arcade text-sm sm:text-base">0</span></span>
+                        <span class="text-fuchsia-300">🌟 RP: <span id="modal-rp" class="font-arcade text-sm sm:text-base">0</span> <span id="modal-rebirth-count" class="text-[11px] text-gray-400">(転生 0回)</span></span>
+                    </div>
+                </div>
+                <button id="close-upgrade-btn" class="w-10 h-10 rounded-full bg-gray-800 hover:bg-gray-700 text-white font-black text-lg cursor-pointer">✕</button>
+            </div>
+
+            <!-- タブ切り替え（3タブ） -->
+            <div class="grid grid-cols-3 gap-2 mb-3">
+                <button id="tab-upgrades-btn" class="py-2 rounded-xl bg-yellow-500 text-black font-black text-xs sm:text-sm cursor-pointer">
+                    🪙 兵器強化
+                </button>
+                <button id="tab-skins-btn" class="py-2 rounded-xl bg-gray-800 text-cyan-300 font-black text-xs sm:text-sm border border-cyan-500/40 cursor-pointer">
+                    💎 惑星スキン
+                </button>
+                <button id="tab-rebirth-btn" class="py-2 rounded-xl bg-gray-800 text-fuchsia-300 font-black text-xs sm:text-sm border border-fuchsia-500/40 cursor-pointer">
+                    ♻️ 転生＆ツリー
+                </button>
+            </div>
+
+            <!-- タブ1: アップグレード一覧 -->
+            <div id="upgrade-list" class="space-y-2.5 overflow-y-auto pr-1 flex-1"></div>
+
+            <!-- タブ2: 惑星スキン一覧 -->
+            <div id="skin-list" class="hidden grid grid-cols-2 gap-2.5 overflow-y-auto pr-1 flex-1"></div>
+
+            <!-- タブ3: 転生＆スキルツリー -->
+            <div id="rebirth-panel" class="hidden flex-1 overflow-y-auto pr-1 space-y-3">
+                <!-- 転生実行ボックス -->
+                <div class="bg-gradient-to-r from-fuchsia-950/90 via-purple-950/90 to-indigo-950/90 border-2 border-fuchsia-400 rounded-2xl p-3.5 text-center shadow-[0_0_25px_rgba(217,70,239,0.3)]">
+                    <div class="text-xs font-black text-fuchsia-300 tracking-wider mb-1">♻️ COSMIC REBIRTH (転生システム)</div>
+                    <p class="text-[11px] sm:text-xs text-gray-200 mb-2">
+                        WORLD・コイン・兵器Lvをリセットして<strong class="text-fuchsia-300">永久スキル用 RP</strong>を獲得！<br>
+                        <span class="text-cyan-300">※💎ダイヤ・🪐解放済スキン・🌌スキルツリーは永久に引き継がれます</span>
+                    </p>
+                    <div class="flex flex-col sm:flex-row items-center justify-center gap-3">
+                        <div class="bg-black/60 px-4 py-1.5 rounded-xl border border-fuchsia-500/50 text-xs font-black">
+                            転生獲得予定: <span id="rebirth-preview-rp" class="font-arcade text-lg text-fuchsia-300">+0 RP</span>
+                        </div>
+                        <button id="do-rebirth-btn" class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-fuchsia-500 to-pink-600 hover:from-fuchsia-400 hover:to-pink-500 text-white font-black text-xs sm:text-sm border border-white shadow-lg cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+                            ♻️ 転生を実行する (WORLD 3以上)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- スキルツリー描画コンテナ -->
+                <div class="bg-black/60 border border-fuchsia-500/40 rounded-2xl p-3">
+                    <div class="text-center text-xs font-black text-fuchsia-300 mb-2">🌌 コズミック・スキルツリー (🌟RPで永久強化)</div>
+                    <div id="skill-tree-container" class="space-y-3"></div>
+                </div>
+            </div>
+
+            <!-- セーブ管理フッター -->
+            <div class="mt-3 pt-2.5 border-t border-white/15 flex items-center justify-between gap-2 text-xs">
+                <button id="manual-save-btn" class="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black cursor-pointer">
+                    💾 今すぐセーブ
+                </button>
+                <button id="reset-data-btn" class="px-3 py-2 rounded-xl bg-red-950/90 hover:bg-red-800 border border-red-500/60 text-red-300 font-bold cursor-pointer">
+                    🗑️ データ初期化
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 惑星完全破壊クリア画面 -->
+    <div id="victory-screen" class="hidden fixed inset-0 z-50 pointer-events-auto flex flex-col items-center justify-center bg-black/85 backdrop-blur-lg p-6 text-center">
+        <div class="text-6xl sm:text-8xl mb-3 animate-bounce">💥🪐💥</div>
+        <h2 class="font-arcade text-3xl sm:text-6xl text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 via-pink-500 to-cyan-400 mb-2">
+            PLANET ANNIHILATED!
+        </h2>
+        <p id="victory-stats" class="text-gray-200 font-bold text-base sm:text-xl mb-4">
+            WORLD 1 の惑星を完全粉砕しました！
+        </p>
+
+        <!-- クリア報酬ボックス -->
+        <div class="bg-gray-900/90 border-2 border-yellow-400 rounded-2xl p-4 mb-6 w-full max-w-md shadow-[0_0_30px_rgba(255,215,0,0.4)]">
+            <div class="text-xs font-black text-yellow-300 mb-2">🎁 惑星破壊クリア報酬</div>
+            <div class="flex justify-center gap-6">
+                <div class="flex items-center gap-2">
+                    <span class="text-2xl">🪙</span>
+                    <span id="reward-coins-text" class="font-arcade text-2xl text-yellow-400">+0</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-2xl">💎</span>
+                    <span id="reward-diamonds-text" class="font-arcade text-2xl text-cyan-300">+0</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-3">
+            <button type="button" id="victory-shop-btn" class="px-6 py-4 rounded-2xl bg-gradient-to-r from-yellow-400 to-orange-500 text-black font-black text-lg border-2 border-white shadow-lg hover:scale-105 transition cursor-pointer">
+                ⬆️ 報酬で強化＆スキン解放
+            </button>
+            <button type="button" id="next-world-btn" class="px-8 py-4 rounded-2xl bg-gradient-to-r from-cyan-400 to-pink-600 text-white font-black text-xl border-2 border-white shadow-[0_0_30px_rgba(0,243,255,0.8)] hover:scale-105 transition cursor-pointer">
+                次の惑星へ (WORLD 2) 🚀
+            </button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- ゲーム状態管理 ---
+        const STATE = {
+            isPlaying: false,
+            isVictory: false,
+            worldLevel: 1,       // 現在選択中のWORLDレベル
+            maxWorldLevel: 1,    // 到達済みの最高WORLDレベル
+            armorHardness: 1.0,  // 惑星の硬さ（ダメージ減衰＆掘削抵抗）
+            baseMaxHp: 1800000,  // しっかり削りごたえのある基準HP
+            maxHp: 1800000,
+            hp: 1800000,
+            coins: 0,
+            diamonds: 0,
+            rebirthCount: 0,
+            rebirthPoints: 0,
+            skills: {
+                core_atk: 0,      // Tier 1: 基礎破壊力
+                coin_boost: 0,    // Tier 1: コイン獲得量
+                shatter_plus: 0,  // Tier 2: SHATTER確率＆割合ダメージ
+                fever_master: 0,  // Tier 2: FEVER倍率＆持続時間
+                start_fund: 0,    // Tier 2: 転生＆開始時の初期コイン
+                auto_overdrive: 0,// Tier 3: サテライト砲台超強化
+                armor_pierce: 0,  // Tier 3: 惑星装甲貫通率UP
+                big_bang: 0       // Tier 4: 最終奥義・ビッグバンクリティカル
+            },
+            combo: 0,
+            comboTimer: 0,
+            fever: 0,
+            isFever: false,
+            feverTimer: 0,
+            selectedWeapon: 'laser',
+            autoRotate: true,
+            soundEnabled: true,
+            shakeIntensity: 0,
+            isPointerDown: false,
+            lastPointerPos: { x: 0, y: 0 },
+            pointerDownPos: { x: 0, y: 0 },
+            isDraggingGlobe: false,
+            fireCooldown: 0,
+            autoTurretTimer: 0,
+            chaosCooldown: 0,
+            totalRunDamage: 0,
+            currentSkin: 'earth',
+            unlockedSkins: ['earth'],
+            hasSavedData: false,
+            upgrades: {
+                power: { lv: 1, cost: 350 },
+                speed: { lv: 1, cost: 550 },
+                auto:  { lv: 0, cost: 800 },
+                greed: { lv: 1, cost: 650 }
+            }
+        };
+
+        // --- スキルツリー定義 ---
+        const SKILL_TREE_NODES = [
+            // Tier 1 (ルート)
+            {
+                id: 'core_atk',
+                tier: 1,
+                icon: '🔥',
+                name: '原初の破壊衝動',
+                maxLv: 10,
+                baseCost: 2,
+                costStep: 2,
+                req: null,
+                desc: (lv) => `全兵器の基礎攻撃力 +${lv * 35}% (次: +${(lv + 1) * 35}%)`
+            },
+            {
+                id: 'coin_boost',
+                tier: 1,
+                icon: '💰',
+                name: '黄金の錬金炉',
+                maxLv: 10,
+                baseCost: 2,
+                costStep: 2,
+                req: null,
+                desc: (lv) => `全コイン獲得量 +${lv * 40}% (次: +${(lv + 1) * 40}%)`
+            },
+            // Tier 2 (分岐)
+            {
+                id: 'shatter_plus',
+                tier: 2,
+                icon: '💥',
+                name: '地殻崩壊レゾナンス',
+                maxLv: 8,
+                baseCost: 4,
+                costStep: 3,
+                req: { id: 'core_atk', lv: 2 },
+                reqText: '原初の破壊衝動 Lv.2',
+                desc: (lv) => `SHATTER発生率 +${lv * 2.5}% & 割合追撃 +${(lv * 1.2).toFixed(1)}%`
+            },
+            {
+                id: 'fever_master',
+                tier: 2,
+                icon: '🌈',
+                name: '脳汁オーバードライブ',
+                maxLv: 6,
+                baseCost: 4,
+                costStep: 3,
+                req: { id: 'core_atk', lv: 2 },
+                reqText: '原初の破壊衝動 Lv.2',
+                desc: (lv) => `FEVER倍率 +${(lv * 0.5).toFixed(1)}x & 持続 +${lv * 1.5}秒`
+            },
+            {
+                id: 'start_fund',
+                tier: 2,
+                icon: '🏦',
+                name: '転生スタートダッシュ',
+                maxLv: 8,
+                baseCost: 3,
+                costStep: 3,
+                req: { id: 'coin_boost', lv: 2 },
+                reqText: '黄金の錬金炉 Lv.2',
+                desc: (lv) => `転生直後の初期所持コイン +${(lv * 2500).toLocaleString()} 🪙`
+            },
+            // Tier 3 (上位)
+            {
+                id: 'armor_pierce',
+                tier: 3,
+                icon: '🗡️',
+                name: '絶対装甲貫通',
+                maxLv: 8,
+                baseCost: 7,
+                costStep: 5,
+                req: { id: 'shatter_plus', lv: 2 },
+                reqText: '地殻崩壊レゾナンス Lv.2',
+                desc: (lv) => `高WORLDの装甲硬度の影響を ${Math.min(75, lv * 9)}% 無視`
+            },
+            {
+                id: 'auto_overdrive',
+                tier: 3,
+                icon: '🛰️',
+                name: '自律衛星ネットワーク',
+                maxLv: 8,
+                baseCost: 6,
+                costStep: 4,
+                req: { id: 'start_fund', lv: 2 },
+                reqText: '転生スタートダッシュ Lv.2',
+                desc: (lv) => `自動サテライト砲の威力 +${lv * 60}% & 連射UP`
+            },
+            // Tier 4 (最終奥義)
+            {
+                id: 'big_bang',
+                tier: 4,
+                icon: '🌌',
+                name: '終焉のビッグバン・コア',
+                maxLv: 5,
+                baseCost: 15,
+                costStep: 10,
+                req: { id: 'armor_pierce', lv: 3 },
+                reqText: '絶対装甲貫通 Lv.3',
+                desc: (lv) => `クリティカル倍率 +${lv * 1.2}x & 惑星クリアRP +${lv * 25}%`
+            }
+        ];
+
+        // --- クラウドセーブシステム ---
+        const SaveSystem = {
+            db: null,
+            userId: null,
+            appId: typeof __app_id !== 'undefined' ? __app_id : 'planet-breaker-default',
+            saveTimeout: null,
+
+            async init() {
+                try {
+                    if (typeof __firebase_config === 'undefined') return;
+                    const firebaseConfig = JSON.parse(__firebase_config);
+                    const app = initializeApp(firebaseConfig);
+                    const auth = getAuth(app);
+                    this.db = getFirestore(app);
+
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                    this.userId = auth.currentUser?.uid;
+                    if (this.userId) {
+                        await this.loadProgress();
+                    }
+                } catch (e) {
+                    console.warn("SaveSystem init skipped:", e);
+                }
+            },
+
+            getDocRef() {
+                if (!this.db || !this.userId) return null;
+                return doc(this.db, 'artifacts', this.appId, 'users', this.userId, 'planetBreakerSave', 'main');
+            },
+
+            async loadProgress() {
+                const ref = this.getDocRef();
+                if (!ref) return;
+                try {
+                    const snap = await getDoc(ref);
+                    if (snap.exists()) {
+                        const data = snap.data();
+                        STATE.worldLevel = data.worldLevel || 1;
+                        STATE.maxWorldLevel = Math.max(STATE.worldLevel, data.maxWorldLevel || 1);
+                        STATE.armorHardness = +(Math.pow(1.60, STATE.worldLevel - 1)).toFixed(2);
+                        STATE.maxHp = Math.floor(STATE.baseMaxHp * Math.pow(1.95, STATE.worldLevel - 1));
+                        STATE.hp = typeof data.hp === 'number' && data.hp > 0 ? Math.min(data.hp, STATE.maxHp) : STATE.maxHp;
+                        STATE.coins = data.coins || 0;
+                        STATE.diamonds = data.diamonds || 0;
+                        STATE.rebirthCount = data.rebirthCount || 0;
+                        STATE.rebirthPoints = data.rebirthPoints || 0;
+                        if (data.skills) {
+                            STATE.skills = { ...STATE.skills, ...data.skills };
+                        }
+                        STATE.currentSkin = data.currentSkin || 'earth';
+                        STATE.unlockedSkins = Array.isArray(data.unlockedSkins) && data.unlockedSkins.length > 0
+                            ? data.unlockedSkins
+                            : ['earth'];
+                        if (data.upgrades) {
+                            STATE.upgrades = {
+                                power: data.upgrades.power || { lv: 1, cost: 350 },
+                                speed: data.upgrades.speed || { lv: 1, cost: 550 },
+                                auto:  data.upgrades.auto  || { lv: 0, cost: 800 },
+                                greed: data.upgrades.greed || { lv: 1, cost: 650 }
+                            };
+                        }
+                        STATE.hasSavedData = true;
+
+                        const banner = document.getElementById('save-status-banner');
+                        if (banner) {
+                            banner.textContent = `💾 データ復元完了！ (転生 ${STATE.rebirthCount}回 / 最高 WORLD ${STATE.maxWorldLevel} / 🌟${STATE.rebirthPoints}RP)`;
+                            banner.classList.remove('hidden');
+                        }
+                        updateHomeWorldUI();
+                        buildEarth();
+                        updateHUD();
+                    }
+                } catch (e) {
+                    console.warn("Load progress failed:", e);
+                }
+            },
+
+            scheduleSave() {
+                if (this.saveTimeout) clearTimeout(this.saveTimeout);
+                this.saveTimeout = setTimeout(() => this.saveNow(false), 1800);
+            },
+
+            async saveNow(showBanner = true) {
+                const ref = this.getDocRef();
+                if (!ref) return;
+                try {
+                    await setDoc(ref, {
+                        worldLevel: STATE.worldLevel,
+                        maxWorldLevel: STATE.maxWorldLevel,
+                        hp: STATE.hp,
+                        coins: STATE.coins,
+                        diamonds: STATE.diamonds,
+                        rebirthCount: STATE.rebirthCount,
+                        rebirthPoints: STATE.rebirthPoints,
+                        skills: STATE.skills,
+                        currentSkin: STATE.currentSkin,
+                        unlockedSkins: STATE.unlockedSkins,
+                        upgrades: STATE.upgrades,
+                        updatedAt: Date.now()
+                    });
+                    STATE.hasSavedData = true;
+                    const ind = document.getElementById('save-indicator');
+                    if (ind) {
+                        ind.style.opacity = '1';
+                        setTimeout(() => { ind.style.opacity = '0'; }, 1200);
+                    }
+                    if (showBanner) {
+                        showEventBanner("💾 PROGRESS SAVED!");
+                    }
+                } catch (e) {
+                    console.warn("Save failed:", e);
+                }
+            },
+
+            async resetProgress() {
+                STATE.worldLevel = 1;
+                STATE.maxWorldLevel = 1;
+                STATE.armorHardness = 1.0;
+                STATE.maxHp = STATE.baseMaxHp;
+                STATE.hp = STATE.baseMaxHp;
+                STATE.coins = 0;
+                STATE.diamonds = 0;
+                STATE.rebirthCount = 0;
+                STATE.rebirthPoints = 0;
+                Object.keys(STATE.skills).forEach(k => { STATE.skills[k] = 0; });
+                STATE.currentSkin = 'earth';
+                STATE.unlockedSkins = ['earth'];
+                STATE.upgrades = {
+                    power: { lv: 1, cost: 350 },
+                    speed: { lv: 1, cost: 550 },
+                    auto:  { lv: 0, cost: 800 },
+                    greed: { lv: 1, cost: 650 }
+                };
+                STATE.hasSavedData = false;
+                earthGroup.visible = true;
+                updateHomeWorldUI();
+                buildEarth();
+                updateHUD();
+                await this.saveNow(true);
+            }
+        };
+
+        // --- 惑星スキン定義（💎ダイヤモンドで解放） ---
+        const PLANET_SKINS = [
+            {
+                id: 'earth',
+                name: '地球 (Earth)',
+                icon: '🌍',
+                cost: 0,
+                desc: '衛星データ再現・青き水の惑星',
+                atmoColor: 0x0088ff,
+                hasClouds: true,
+                hasRing: false
+            },
+            {
+                id: 'moon',
+                name: '月 (The Moon)',
+                icon: '🌕',
+                cost: 15,
+                desc: '無数のクレーターが刻まれた灰白色の衛星',
+                atmoColor: 0x99aacc,
+                hasClouds: false,
+                hasRing: false
+            },
+            {
+                id: 'mars',
+                name: '火星 (Mars)',
+                icon: '🔴',
+                cost: 35,
+                desc: '赤褐色の酸化鉄砂漠と極地の氷冠',
+                atmoColor: 0xff5522,
+                hasClouds: false,
+                hasRing: false
+            },
+            {
+                id: 'saturn',
+                name: '土星 (Saturn)',
+                icon: '🪐',
+                cost: 70,
+                desc: '黄金の縞模様と巨大な氷の惑星環リング付き！',
+                atmoColor: 0xffcc66,
+                hasClouds: true,
+                hasRing: true
+            },
+            {
+                id: 'cyber',
+                name: '電脳惑星 (Cybertron)',
+                icon: '👾',
+                cost: 120,
+                desc: 'ネオン回路が脈打つ超未来デジタル天体',
+                atmoColor: 0x00ffcc,
+                hasClouds: false,
+                hasRing: true
+            },
+            {
+                id: 'sun',
+                name: '太陽 (The Sun)',
+                icon: '☀️',
+                cost: 200,
+                desc: '灼熱のコロナが吹き荒れる超高温恒星',
+                atmoColor: 0xff8800,
+                hasClouds: false,
+                hasRing: false
+            }
+        ];
+
+        // --- サウンドエンジン (Tone.js) ---
+        const SoundEngine = {
+            initialized: false,
+            laserSynth: null,
+            boomSynth: null,
+            noiseSynth: null,
+            slashSynth: null,
+            bgmLoop: null,
+            lastTime: { laser: 0, boom: 0, noise: 0, slash: 0, fever: 0, bgm: 0 },
+
+            safeTime(channel, offset = 0) {
+                const now = Tone.now() + offset;
+                const next = Math.max(now, (this.lastTime[channel] || 0) + 0.015);
+                this.lastTime[channel] = next;
+                return next;
+            },
+
+            async init() {
+                if (this.initialized) return;
+                try {
+                    await Tone.start();
+                    this.laserSynth = new Tone.PolySynth(Tone.Synth, {
+                        oscillator: { type: "sawtooth" },
+                        envelope: { attack: 0.005, decay: 0.1, sustain: 0.05, release: 0.1 }
+                    }).toDestination();
+                    this.laserSynth.volume.value = -14;
+
+                    this.boomSynth = new Tone.MembraneSynth({
+                        pitchDecay: 0.08,
+                        octaves: 6,
+                        oscillator: { type: "sine" },
+                        envelope: { attack: 0.001, decay: 0.35, sustain: 0.01, release: 0.4 }
+                    }).toDestination();
+                    this.boomSynth.volume.value = -6;
+
+                    this.noiseSynth = new Tone.NoiseSynth({
+                        noise: { type: "brown" },
+                        envelope: { attack: 0.005, decay: 0.25, sustain: 0, release: 0.2 }
+                    }).toDestination();
+                    this.noiseSynth.volume.value = -10;
+
+                    this.slashSynth = new Tone.MetalSynth({
+                        frequency: 250,
+                        envelope: { attack: 0.001, decay: 0.2, release: 0.1 },
+                        harmonicity: 5.1,
+                        modulationIndex: 32,
+                        resonance: 4000,
+                        octaves: 1.5
+                    }).toDestination();
+                    this.slashSynth.volume.value = -12;
+
+                    const bassNotes = ["C2", "C2", "G1", "A#1", "F1", "F1", "G1", "G1"];
+                    let step = 0;
+                    this.bgmLoop = new Tone.Loop((time) => {
+                        if (!STATE.soundEnabled || !STATE.isPlaying) return;
+                        try {
+                            const note = bassNotes[step % bassNotes.length];
+                            const safeT = Math.max(time, (this.lastTime.bgm || 0) + 0.02);
+                            this.lastTime.bgm = safeT;
+                            this.laserSynth.triggerAttackRelease(note, "16n", safeT, STATE.isFever ? 0.4 : 0.15);
+                            step++;
+                        } catch (e) {}
+                    }, "8n").start(0);
+
+                    Tone.Transport.bpm.value = 148;
+                    Tone.Transport.start();
+                    this.initialized = true;
+                } catch (e) {
+                    console.warn("Audio init skipped:", e);
+                }
+            },
+
+            playLaser(combo) {
+                if (!this.initialized || !STATE.soundEnabled) return;
+                try {
+                    const scale = ["C4", "D4", "E4", "G4", "A4", "C5", "D5", "E5", "G5", "A5", "C6"];
+                    const note = scale[combo % scale.length];
+                    this.laserSynth.triggerAttackRelease(note, "32n", this.safeTime('laser'));
+                } catch (e) {}
+            },
+
+            playExplosion() {
+                if (!this.initialized || !STATE.soundEnabled) return;
+                try {
+                    this.boomSynth.triggerAttackRelease("C1", "8n", this.safeTime('boom'));
+                    this.noiseSynth.triggerAttackRelease("8n", this.safeTime('noise'));
+                } catch (e) {}
+            },
+
+            playSlash() {
+                if (!this.initialized || !STATE.soundEnabled) return;
+                try {
+                    this.slashSynth.triggerAttackRelease("16n", this.safeTime('slash'));
+                } catch (e) {}
+            },
+
+            playFever() {
+                if (!this.initialized || !STATE.soundEnabled) return;
+                try {
+                    const base = this.safeTime('fever');
+                    ["C5", "E5", "G5", "B5", "C6"].forEach((n, i) => {
+                        this.laserSynth.triggerAttackRelease(n, "16n", base + i * 0.05);
+                    });
+                } catch (e) {}
+            }
+        };
+
+        // --- Three.js 3Dシーンセットアップ ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 0.4, 6.2);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.25;
+        container.appendChild(renderer.domElement);
+
+        // ライティング
+        const ambientLight = new THREE.AmbientLight(0x334466, 1.3);
+        scene.add(ambientLight);
+
+        const sunLight = new THREE.DirectionalLight(0xffffff, 2.2);
+        sunLight.position.set(5, 3, 5);
+        scene.add(sunLight);
+
+        const rimLight = new THREE.DirectionalLight(0xff007f, 1.0);
+        rimLight.position.set(-5, -3, -4);
+        scene.add(rimLight);
+
+        // 宇宙背景の星空
+        function createStarfield() {
+            const starGeo = new THREE.BufferGeometry();
+            const starCount = 2500;
+            const posArray = new Float32Array(starCount * 3);
+            const colorArray = new Float32Array(starCount * 3);
+            const colors = [new THREE.Color(0xffffff), new THREE.Color(0x88ccff), new THREE.Color(0xffaadd), new THREE.Color(0xffee88)];
+
+            for (let i = 0; i < starCount; i++) {
+                const r = 40 + Math.random() * 80;
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos(2 * Math.random() - 1);
+                posArray[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+                posArray[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+                posArray[i * 3 + 2] = r * Math.cos(phi);
+
+                const col = colors[Math.floor(Math.random() * colors.length)];
+                colorArray[i * 3] = col.r;
+                colorArray[i * 3 + 1] = col.g;
+                colorArray[i * 3 + 2] = col.b;
+            }
+            starGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+            starGeo.setAttribute('color', new THREE.BufferAttribute(colorArray, 3));
+            const starMat = new THREE.PointsMaterial({ size: 0.25, vertexColors: true, transparent: true, opacity: 0.9 });
+            scene.add(new THREE.Points(starGeo, starMat));
+        }
+        createStarfield();
+
+        // --- スキン対応・超高精細プロシージャル衛星テクスチャ生成 ---
+        function generatePlanetTexture(skinId = 'earth') {
+            const width = 1024;
+            const height = 512;
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+
+            function pseudoNoise(x, y) {
+                const n1 = Math.sin(x * 0.015 + 1.2) * Math.cos(y * 0.015 + 0.5);
+                const n2 = Math.sin(x * 0.04 - y * 0.03) * 0.5;
+                const n3 = Math.cos(x * 0.1 + y * 0.12) * 0.25;
+                const n4 = Math.sin(x * 0.25 - y * 0.22) * 0.12;
+                return (n1 + n2 + n3 + n4) / 1.87;
+            }
+
+            if (skinId === 'cyber') {
+                ctx.fillStyle = '#050814';
+                ctx.fillRect(0, 0, width, height);
+                ctx.strokeStyle = '#00f3ff';
+                ctx.lineWidth = 2;
+                for (let y = 0; y < height; y += 32) {
+                    ctx.beginPath();
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(width, y);
+                    ctx.stroke();
+                }
+                for (let x = 0; x < width; x += 32) {
+                    ctx.beginPath();
+                    ctx.moveTo(x, 0);
+                    ctx.lineTo(x, height);
+                    ctx.stroke();
+                }
+                for (let i = 0; i < 160; i++) {
+                    const rx = Math.floor(Math.random() * 32) * 32;
+                    const ry = Math.floor(Math.random() * 16) * 32;
+                    ctx.fillStyle = i % 2 === 0 ? 'rgba(255, 0, 127, 0.75)' : 'rgba(0, 255, 170, 0.75)';
+                    ctx.fillRect(rx + 4, ry + 4, 24, 24);
+                }
+                return canvas;
+            }
+
+            const imgData = ctx.createImageData(width, height);
+            const data = imgData.data;
+
+            for (let y = 0; y < height; y++) {
+                const lat = (y / height - 0.5) * Math.PI;
+                const absLat = Math.abs(lat) / (Math.PI / 2);
+
+                for (let x = 0; x < width; x++) {
+                    const lon = (x / width) * Math.PI * 2;
+                    const nx = Math.cos(lat) * Math.cos(lon) * 140;
+                    const ny = Math.sin(lat) * 140;
+                    const nz = Math.cos(lat) * Math.sin(lon) * 140;
+
+                    let h = pseudoNoise(nx + 200, ny + nz + 200);
+                    const idx = (y * width + x) * 4;
+                    let r, g, b;
+
+                    if (skinId === 'moon') {
+                        const base = 135 + h * 55;
+                        r = base; g = base; b = base + 5;
+                    } else if (skinId === 'mars') {
+                        if (absLat > 0.86) {
+                            r = 240; g = 235; b = 235;
+                        } else {
+                            r = 185 + h * 55;
+                            g = 75 + h * 35;
+                            b = 40 + h * 20;
+                        }
+                    } else if (skinId === 'saturn') {
+                        const band = Math.sin(lat * 22 + h * 2.5);
+                        r = 225 + band * 25;
+                        g = 190 + band * 25;
+                        b = 120 + band * 20;
+                    } else if (skinId === 'sun') {
+                        const flare = Math.sin(nx * 0.15) * Math.cos(ny * 0.15) + h;
+                        r = 255;
+                        g = Math.min(255, Math.max(90, 165 + flare * 85));
+                        b = Math.max(0, 30 + flare * 60);
+                    } else {
+                        // 地球（Google Earth風衛星マップ）
+                        if (absLat > 0.82 + h * 0.08) {
+                            r = 240; g = 248; b = 255;
+                        } else if (h < 0.04) {
+                            const depth = Math.max(0, (h + 0.8) / 0.84);
+                            r = 5 + depth * 15;
+                            g = 35 + depth * 85;
+                            b = 110 + depth * 115;
+                        } else if (h < 0.08) {
+                            r = 210; g = 195; b = 140;
