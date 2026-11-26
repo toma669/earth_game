@@ -998,3 +998,1433 @@
                             b = 110 + depth * 115;
                         } else if (h < 0.08) {
                             r = 210; g = 195; b = 140;
+                        } else if (h < 0.35) {
+                            const desertFactor = Math.max(0, 1 - Math.abs(absLat - 0.32) * 5);
+                            if (desertFactor > 0.55) {
+                                r = 215; g = 180; b = 115;
+                            } else {
+                                r = 28 + h * 50;
+                                g = 115 + h * 70;
+                                b = 38 + h * 25;
+                            }
+                        } else {
+                            const snow = Math.min(1, (h - 0.35) * 4);
+                            r = 110 + snow * 135;
+                            g = 100 + snow * 145;
+                            b = 95 + snow * 150;
+                        }
+                    }
+
+                    data[idx] = Math.min(255, Math.max(0, r));
+                    data[idx + 1] = Math.min(255, Math.max(0, g));
+                    data[idx + 2] = Math.min(255, Math.max(0, b));
+                    data[idx + 3] = 255;
+                }
+            }
+            ctx.putImageData(imgData, 0, 0);
+
+            if (skinId === 'earth') {
+                ctx.fillStyle = "rgba(255, 220, 110, 0.85)";
+                for (let i = 0; i < 420; i++) {
+                    const cx = Math.random() * width;
+                    const cy = height * 0.2 + Math.random() * height * 0.6;
+                    const p = ctx.getImageData(Math.floor(cx), Math.floor(cy), 1, 1).data;
+                    if (p[1] > p[2] * 0.85 && p[0] < 230) {
+                        ctx.beginPath();
+                        ctx.arc(cx, cy, Math.random() * 2.2 + 0.6, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+            } else if (skinId === 'moon') {
+                for (let i = 0; i < 140; i++) {
+                    const cx = Math.random() * width;
+                    const cy = Math.random() * height;
+                    const cr = 3 + Math.random() * 14;
+                    ctx.strokeStyle = 'rgba(70, 75, 85, 0.7)';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, cr, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+            }
+            return canvas;
+        }
+
+        // --- 地球＆多層地層構造グループ ---
+        const earthGroup = new THREE.Group();
+        scene.add(earthGroup);
+
+        const EARTH_RADIUS = 1.85;
+        let earthMesh, cloudMesh, atmoMesh, ringMesh;
+        let earthCanvas, earthCtx, earthTexture;
+        let originalPositions;
+
+        function buildEarth() {
+            while (earthGroup.children.length > 0) {
+                earthGroup.remove(earthGroup.children[0]);
+            }
+
+            const skinObj = PLANET_SKINS.find(s => s.id === STATE.currentSkin) || PLANET_SKINS[0];
+
+            // 1. 中心コア＆多層地層（マントル〜外核〜内核）
+            const coreLayers = [
+                { r: 0.42, color: 0xffffff, emissive: 0xffffff, intensity: 3.5 },
+                { r: 0.78, color: 0xffee33, emissive: 0xffaa00, intensity: 2.6 },
+                { r: 1.15, color: 0xff5500, emissive: 0xff3300, intensity: 2.0 },
+                { r: 1.48, color: 0x991100, emissive: 0x660800, intensity: 1.4 }
+            ];
+            coreLayers.forEach(layer => {
+                const geo = new THREE.SphereGeometry(layer.r, 32, 32);
+                const mat = new THREE.MeshStandardMaterial({
+                    color: layer.color,
+                    emissive: layer.emissive,
+                    emissiveIntensity: layer.intensity,
+                    roughness: 0.4
+                });
+                earthGroup.add(new THREE.Mesh(geo, mat));
+            });
+
+            // 2. 地殻（メイン惑星メッシュ）
+            earthCanvas = generatePlanetTexture(skinObj.id);
+            earthCtx = earthCanvas.getContext('2d');
+            earthTexture = new THREE.CanvasTexture(earthCanvas);
+            earthTexture.anisotropy = 4;
+
+            const earthGeo = new THREE.SphereGeometry(EARTH_RADIUS, 112, 84);
+            originalPositions = new Float32Array(earthGeo.attributes.position.array);
+
+            const earthMat = new THREE.MeshStandardMaterial({
+                map: earthTexture,
+                roughness: skinObj.id === 'sun' ? 0.2 : 0.65,
+                metalness: skinObj.id === 'cyber' ? 0.5 : 0.08,
+                emissive: skinObj.id === 'sun' ? new THREE.Color(0xff5500) : new THREE.Color(0x000000),
+                emissiveIntensity: skinObj.id === 'sun' ? 0.8 : 0.0
+            });
+            earthMesh = new THREE.Mesh(earthGeo, earthMat);
+            earthGroup.add(earthMesh);
+
+            // 3. 雲レイヤー
+            if (skinObj.hasClouds) {
+                const cloudCanvas = document.createElement('canvas');
+                cloudCanvas.width = 512;
+                cloudCanvas.height = 256;
+                const cCtx = cloudCanvas.getContext('2d');
+                for (let i = 0; i < 480; i++) {
+                    const x = Math.random() * 512;
+                    const y = Math.random() * 256;
+                    const rx = 10 + Math.random() * 35;
+                    const ry = 3 + Math.random() * 10;
+                    const grad = cCtx.createRadialGradient(x, y, 1, x, y, rx);
+                    grad.addColorStop(0, "rgba(255,255,255,0.42)");
+                    grad.addColorStop(1, "rgba(255,255,255,0)");
+                    cCtx.fillStyle = grad;
+                    cCtx.beginPath();
+                    cCtx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
+                    cCtx.fill();
+                }
+                const cloudTex = new THREE.CanvasTexture(cloudCanvas);
+                const cloudGeo = new THREE.SphereGeometry(EARTH_RADIUS * 1.022, 48, 36);
+                const cloudMat = new THREE.MeshLambertMaterial({
+                    map: cloudTex,
+                    transparent: true,
+                    opacity: 0.75,
+                    depthWrite: false
+                });
+                cloudMesh = new THREE.Mesh(cloudGeo, cloudMat);
+                earthGroup.add(cloudMesh);
+            } else {
+                cloudMesh = null;
+            }
+
+            // 4. 大気圏グロー
+            const atmoGeo = new THREE.SphereGeometry(EARTH_RADIUS * 1.07, 48, 36);
+            const atmoMat = new THREE.MeshBasicMaterial({
+                color: skinObj.atmoColor,
+                transparent: true,
+                opacity: 0.16,
+                side: THREE.BackSide,
+                blending: THREE.AdditiveBlending
+            });
+            atmoMesh = new THREE.Mesh(atmoGeo, atmoMat);
+            earthGroup.add(atmoMesh);
+
+            // 5. 惑星環リング（土星・電脳惑星スキン）
+            if (skinObj.hasRing) {
+                const ringGeo = new THREE.RingGeometry(EARTH_RADIUS * 1.28, EARTH_RADIUS * 2.05, 64);
+                const ringMat = new THREE.MeshBasicMaterial({
+                    color: skinObj.id === 'cyber' ? 0x00ffcc : 0xddbb88,
+                    side: THREE.DoubleSide,
+                    transparent: true,
+                    opacity: 0.65
+                });
+                ringMesh = new THREE.Mesh(ringGeo, ringMat);
+                ringMesh.rotation.x = Math.PI * 0.42;
+                ringMesh.rotation.y = 0.18;
+                earthGroup.add(ringMesh);
+            } else {
+                ringMesh = null;
+            }
+        }
+        buildEarth();
+
+        // --- 軽量化用・共有ジオメトリ＆バッチ更新管理 ---
+        let meshNeedsUpdate = false;
+        let texNeedsUpdate = false;
+        let lastMeshSyncTime = 0;
+
+        const sharedDebrisGeo = new THREE.DodecahedronGeometry(0.06, 0);
+        const sharedRingGeo = new THREE.RingGeometry(0.08, 0.16, 24);
+        const activeEffects = [];
+        const activeDebris = [];
+        const MAX_DEBRIS = 90;
+
+        // 表面のテクスチャに焦げ跡＆地層断面カラーを描画
+        function paintScorchOnEarth(uv, radiusPx, depthRatio) {
+            if (!uv || !earthCtx) return;
+            const cx = uv.x * earthCanvas.width;
+            const cy = (1 - uv.y) * earthCanvas.height;
+
+            const grad = earthCtx.createRadialGradient(cx, cy, 1, cx, cy, radiusPx);
+            if (depthRatio > 0.7) {
+                grad.addColorStop(0, "rgba(255, 255, 210, 1)");
+                grad.addColorStop(0.4, "rgba(255, 160, 0, 0.95)");
+                grad.addColorStop(0.75, "rgba(180, 20, 0, 0.85)");
+                grad.addColorStop(1, "rgba(20, 10, 10, 0)");
+            } else if (depthRatio > 0.4) {
+                grad.addColorStop(0, "rgba(255, 110, 0, 0.95)");
+                grad.addColorStop(0.55, "rgba(150, 20, 0, 0.85)");
+                grad.addColorStop(1, "rgba(15, 15, 15, 0)");
+            } else {
+                grad.addColorStop(0, "rgba(45, 25, 20, 0.9)");
+                grad.addColorStop(0.65, "rgba(25, 20, 20, 0.65)");
+                grad.addColorStop(1, "rgba(0, 0, 0, 0)");
+            }
+
+            earthCtx.fillStyle = grad;
+            earthCtx.beginPath();
+            earthCtx.arc(cx, cy, radiusPx, 0, Math.PI * 2);
+            earthCtx.fill();
+            texNeedsUpdate = true;
+        }
+
+        // 地殻メッシュの物理凹み変形（WORLD硬度と武器パワーを考慮）
+        function deformEarthMesh(localHitPoint, craterRadius, digPower) {
+            const posAttr = earthMesh.geometry.attributes.position;
+            const arr = posAttr.array;
+
+            // WORLD硬度に対する武器掘削パワー比率
+            const hardnessResistance = Math.max(0.22, Math.min(2.4, digPower / STATE.armorHardness));
+            const effectiveRadius = craterRadius * (0.75 + hardnessResistance * 0.35);
+            const effectiveDepth = 0.14 * hardnessResistance;
+
+            for (let i = 0; i < arr.length; i += 3) {
+                const vx = arr[i];
+                const vy = arr[i + 1];
+                const vz = arr[i + 2];
+
+                const dx = vx - localHitPoint.x;
+                const dy = vy - localHitPoint.y;
+                const dz = vz - localHitPoint.z;
+                const distSq = dx * dx + dy * dy + dz * dz;
+
+                if (distSq < effectiveRadius * effectiveRadius) {
+                    const dist = Math.sqrt(distSq);
+                    const falloff = 1 - dist / effectiveRadius;
+
+                    const ox = originalPositions[i];
+                    const oy = originalPositions[i + 1];
+                    const oz = originalPositions[i + 2];
+                    const origLen = Math.sqrt(ox * ox + oy * oy + oz * oz);
+                    const curLen = Math.sqrt(vx * vx + vy * vy + vz * vz);
+
+                    // 中心核（0.35）より深くは削れないように制限
+                    const targetLen = Math.max(0.35, curLen - effectiveDepth * falloff * falloff);
+                    const scale = targetLen / origLen;
+
+                    arr[i] = ox * scale;
+                    arr[i + 1] = oy * scale;
+                    arr[i + 2] = oz * scale;
+                }
+            }
+            posAttr.needsUpdate = true;
+            meshNeedsUpdate = true;
+        }
+
+        // 確率発生：地殻大粉砕（PLANET SHATTER）演出
+        function triggerPlanetShatter(localHitPoint, worldHitPoint, digPower) {
+            // 表面に巨大な亀裂（クラック）を描画
+            if (earthCtx) {
+                const u = 0.5 + Math.atan2(localHitPoint.z, localHitPoint.x) / (2 * Math.PI);
+                const v = 0.5 - Math.asin(Math.max(-1, Math.min(1, localHitPoint.y / EARTH_RADIUS))) / Math.PI;
+                const cx = (1 - u) * earthCanvas.width;
+                const cy = v * earthCanvas.height;
+
+                earthCtx.save();
+                earthCtx.strokeStyle = "#ffaa00";
+                earthCtx.shadowColor = "#ff3300";
+                earthCtx.shadowBlur = 12;
+                earthCtx.lineWidth = 4;
+
+                for (let b = 0; b < 7; b++) {
+                    let px = cx;
+                    let py = cy;
+                    let angle = (Math.PI * 2 * b) / 7 + (Math.random() - 0.5) * 0.5;
+                    earthCtx.beginPath();
+                    earthCtx.moveTo(px, py);
+                    for (let seg = 0; seg < 6; seg++) {
+                        angle += (Math.random() - 0.5) * 0.9;
+                        px += Math.cos(angle) * (18 + Math.random() * 24);
+                        py += Math.sin(angle) * (18 + Math.random() * 24);
+                        earthCtx.lineTo(px, py);
+                    }
+                    earthCtx.stroke();
+                }
+                earthCtx.restore();
+                texNeedsUpdate = true;
+            }
+
+            // 広範囲の岩盤ブロックを一気に崩落させる
+            deformEarthMesh(localHitPoint, 0.85, digPower * 1.8);
+            spawnDebris(worldHitPoint, 24, 0xff6600);
+            spawnShockwave(worldHitPoint, 0xffcc00, 1.9);
+            addScreenShake(0.45);
+            triggerFlash(0.35);
+            SoundEngine.playExplosion();
+        }
+
+        // --- エフェクト生成（破片・衝撃波・レーザー・メテオ・BH・ミサイル・斬撃） ---
+        function spawnDebris(worldPos, count, colorHex = 0xff5500) {
+            const actualCount = Math.min(count, MAX_DEBRIS - activeDebris.length);
+            if (actualCount <= 0) return;
+
+            const mat = new THREE.MeshBasicMaterial({ color: colorHex });
+            for (let i = 0; i < actualCount; i++) {
+                const mesh = new THREE.Mesh(sharedDebrisGeo, mat);
+                mesh.position.copy(worldPos);
+                const s = 0.5 + Math.random() * 1.4;
+                mesh.scale.set(s, s, s);
+
+                const normal = worldPos.clone().normalize();
+                const tangent = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5);
+                const vel = normal.multiplyScalar(1.8 + Math.random() * 3.5).add(tangent.multiplyScalar(2.5));
+
+                scene.add(mesh);
+                activeDebris.push({
+                    mesh,
+                    vel,
+                    rotVel: new THREE.Vector3(Math.random() * 8, Math.random() * 8, Math.random() * 8),
+                    life: 0.7 + Math.random() * 0.5
+                });
+            }
+        }
+
+        function spawnShockwave(worldPos, colorHex = 0x00f3ff, maxScale = 1.2) {
+            const mat = new THREE.MeshBasicMaterial({
+                color: colorHex,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.9
+            });
+            const ring = new THREE.Mesh(sharedRingGeo, mat);
+            ring.position.copy(worldPos);
+            ring.lookAt(worldPos.clone().multiplyScalar(2));
+            scene.add(ring);
+
+            activeEffects.push({
+                type: 'shockwave',
+                mesh: ring,
+                life: 0.35,
+                maxLife: 0.35,
+                maxScale
+            });
+        }
+
+        function fireLaserBeam(targetWorldPos) {
+            const startPos = new THREE.Vector3((Math.random() - 0.5) * 3, 3.8, 4.5);
+            const dist = startPos.distanceTo(targetWorldPos);
+            const mid = startPos.clone().add(targetWorldPos).multiplyScalar(0.5);
+
+            const beamGeo = new THREE.CylinderGeometry(0.05, 0.08, dist, 8);
+            beamGeo.rotateX(Math.PI / 2);
+            const beamMat = new THREE.MeshBasicMaterial({
+                color: STATE.isFever ? 0xff00ff : 0x00f3ff,
+                transparent: true,
+                opacity: 0.95
+            });
+            const beam = new THREE.Mesh(beamGeo, beamMat);
+            beam.position.copy(mid);
+            beam.lookAt(targetWorldPos);
+            scene.add(beam);
+
+            activeEffects.push({
+                type: 'beam',
+                mesh: beam,
+                life: 0.14,
+                maxLife: 0.14
+            });
+        }
+
+        function launchMeteor(hitInfo) {
+            const startPos = hitInfo.point.clone().normalize().multiplyScalar(6.5);
+            const meteorGeo = new THREE.DodecahedronGeometry(0.28, 1);
+            const meteorMat = new THREE.MeshStandardMaterial({
+                color: 0xff4400,
+                emissive: 0xff2200,
+                emissiveIntensity: 1.5
+            });
+            const meteor = new THREE.Mesh(meteorGeo, meteorMat);
+            meteor.position.copy(startPos);
+            scene.add(meteor);
+
+            activeEffects.push({
+                type: 'projectile',
+                mesh: meteor,
+                start: startPos,
+                end: hitInfo.point.clone(),
+                hitInfo,
+                progress: 0,
+                speed: 4.5,
+                onImpact: () => {
+                    applyDamage(hitInfo, 4800, 0.48, 38, "☄️ METEOR IMPACT!");
+                    spawnDebris(hitInfo.point, 16, 0xff5500);
+                    spawnShockwave(hitInfo.point, 0xff6600, 1.6);
+                    SoundEngine.playExplosion();
+                    addScreenShake(0.35);
+                }
+            });
+        }
+
+        function spawnBlackHole(hitInfo) {
+            const bhGeo = new THREE.SphereGeometry(0.22, 20, 20);
+            const bhMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            const bh = new THREE.Mesh(bhGeo, bhMat);
+            bh.position.copy(hitInfo.point);
+
+            const haloGeo = new THREE.RingGeometry(0.24, 0.45, 32);
+            const haloMat = new THREE.MeshBasicMaterial({ color: 0xaa00ff, side: THREE.DoubleSide, transparent: true, opacity: 0.9 });
+            const halo = new THREE.Mesh(haloGeo, haloMat);
+            halo.lookAt(hitInfo.point.clone().multiplyScalar(2));
+            bh.add(halo);
+            scene.add(bh);
+
+            activeEffects.push({
+                type: 'blackhole',
+                mesh: bh,
+                hitInfo,
+                life: 1.4,
+                maxLife: 1.4,
+                tickTimer: 0
+            });
+            SoundEngine.playExplosion();
+        }
+
+        function launchMissileBarrage(hitInfo) {
+            const count = 6;
+            for (let i = 0; i < count; i++) {
+                const offset = new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.7,
+                    (Math.random() - 0.5) * 0.7,
+                    (Math.random() - 0.5) * 0.7
+                );
+                const targetPt = hitInfo.point.clone().add(offset).normalize().multiplyScalar(EARTH_RADIUS);
+                const startPos = new THREE.Vector3((Math.random() - 0.5) * 6, (Math.random() - 0.5) * 5, 5.5);
+
+                const mGeo = new THREE.ConeGeometry(0.05, 0.22, 6);
+                mGeo.rotateX(Math.PI / 2);
+                const mMat = new THREE.MeshBasicMaterial({ color: i % 2 === 0 ? 0xff007f : 0x00f3ff });
+                const missile = new THREE.Mesh(mGeo, mMat);
+                missile.position.copy(startPos);
+                missile.lookAt(targetPt);
+                scene.add(missile);
+
+                const subHit = {
+                    point: targetPt,
+                    uv: hitInfo.uv
+                };
+
+                activeEffects.push({
+                    type: 'projectile',
+                    mesh: missile,
+                    start: startPos,
+                    end: targetPt,
+                    hitInfo: subHit,
+                    progress: -i * 0.08,
+                    speed: 5.5,
+                    onImpact: () => {
+                        applyDamage(subHit, 950, 0.24, 18, "🚀 BOOM!");
+                        spawnDebris(targetPt, 4, 0xff00aa);
+                        spawnShockwave(targetPt, 0xff007f, 0.7);
+                        SoundEngine.playExplosion();
+                    }
+                });
+            }
+        }
+
+        function executeDimensionSlash(hitInfo) {
+            const slashGeo = new THREE.RingGeometry(0.1, 2.2, 32, 1, 0, Math.PI);
+            const slashMat = new THREE.MeshBasicMaterial({
+                color: 0xffee00,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.95
+            });
+            const slash = new THREE.Mesh(slashGeo, slashMat);
+            slash.position.copy(hitInfo.point);
+            slash.lookAt(hitInfo.point.clone().multiplyScalar(2));
+            slash.rotation.z = Math.random() * Math.PI * 2;
+            scene.add(slash);
+
+            activeEffects.push({
+                type: 'shockwave',
+                mesh: slash,
+                life: 0.28,
+                maxLife: 0.28,
+                maxScale: 1.5
+            });
+
+            applyDamage(hitInfo, 5600, 0.55, 42, "⚔️ DIMENSION SLASH!");
+            spawnDebris(hitInfo.point, 18, 0xffee00);
+            SoundEngine.playSlash();
+            addScreenShake(0.3);
+            triggerFlash(0.22);
+        }
+
+        // --- レイキャスト＆ポインター操作（攻撃＆360°回転） ---
+        const raycaster = new THREE.Raycaster();
+        const pointerNDC = new THREE.Vector2();
+
+        function getEarthHit(clientX, clientY) {
+            pointerNDC.x = (clientX / window.innerWidth) * 2 - 1;
+            pointerNDC.y = -(clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(pointerNDC, camera);
+            const hits = raycaster.intersectObject(earthMesh, false);
+            return hits.length > 0 ? hits[0] : null;
+        }
+
+        function fireSelectedWeapon(clientX, clientY) {
+            if (!STATE.isPlaying || STATE.isVictory || STATE.fireCooldown > 0) return;
+
+            const hit = getEarthHit(clientX, clientY);
+            if (!hit) return;
+
+            const speedLv = STATE.upgrades.speed.lv;
+            const speedMult = Math.pow(1.18, speedLv - 1);
+
+            if (STATE.selectedWeapon === 'laser') {
+                STATE.fireCooldown = Math.max(0.085, 0.14 / speedMult);
+                fireLaserBeam(hit.point);
+                applyDamage(hit, 720, 0.22, 16);
+                spawnDebris(hit.point, 2, 0x00f3ff);
+                SoundEngine.playLaser(STATE.combo);
+            } else if (STATE.selectedWeapon === 'meteor') {
+                STATE.fireCooldown = Math.max(0.16, 0.42 / speedMult);
+                launchMeteor(hit);
+            } else if (STATE.selectedWeapon === 'blackhole') {
+                STATE.fireCooldown = Math.max(0.28, 0.75 / speedMult);
+                spawnBlackHole(hit);
+            } else if (STATE.selectedWeapon === 'missile') {
+                STATE.fireCooldown = Math.max(0.2, 0.52 / speedMult);
+                launchMissileBarrage(hit);
+            } else if (STATE.selectedWeapon === 'slash') {
+                STATE.fireCooldown = Math.max(0.18, 0.45 / speedMult);
+                executeDimensionSlash(hit);
+            }
+        }
+
+        renderer.domElement.addEventListener('pointerdown', (e) => {
+            if (!STATE.isPlaying || STATE.isVictory) return;
+            STATE.isPointerDown = true;
+            STATE.isDraggingGlobe = false;
+            STATE.pointerDownPos = { x: e.clientX, y: e.clientY };
+            STATE.lastPointerPos = { x: e.clientX, y: e.clientY };
+            fireSelectedWeapon(e.clientX, e.clientY);
+        });
+
+        window.addEventListener('pointermove', (e) => {
+            if (!STATE.isPointerDown) return;
+            const dx = e.clientX - STATE.lastPointerPos.x;
+            const dy = e.clientY - STATE.lastPointerPos.y;
+            const totalMove = Math.hypot(e.clientX - STATE.pointerDownPos.x, e.clientY - STATE.pointerDownPos.y);
+
+            if (totalMove > 10) {
+                STATE.isDraggingGlobe = true;
+            }
+
+            if (STATE.isDraggingGlobe) {
+                earthGroup.rotation.y += dx * 0.008;
+                earthGroup.rotation.x = Math.max(-1.4, Math.min(1.4, earthGroup.rotation.x + dy * 0.008));
+            }
+            STATE.lastPointerPos = { x: e.clientX, y: e.clientY };
+        });
+
+        window.addEventListener('pointerup', () => {
+            STATE.isPointerDown = false;
+            STATE.isDraggingGlobe = false;
+        });
+
+        // --- ダメージ計算・コイン＆ダイヤ獲得・SHATTER判定（約5分破壊バランス＋スキルツリー反映） ---
+        function applyDamage(hitInfo, baseDmg, craterRadius, scorchPx, customLabel = null) {
+            if (!STATE.isPlaying || STATE.isVictory) return;
+
+            const powerLv = STATE.upgrades.power.lv;
+            const skillAtkMult = 1 + (STATE.skills.core_atk * 0.35);
+            const digPower = Math.pow(1.42, powerLv - 1) * skillAtkMult;
+            const rawAttack = baseDmg * digPower;
+
+            // スキルツリー「絶対装甲貫通」で高WORLDの硬さを軽減
+            const pierceReduction = Math.min(0.75, STATE.skills.armor_pierce * 0.09);
+            const effectiveArmor = 1 + (STATE.armorHardness - 1) * (1 - pierceReduction);
+
+            const effectiveDmg = rawAttack / Math.pow(effectiveArmor, 0.8);
+            const feverBaseMult = 3.0 + (STATE.skills.fever_master * 0.5);
+            const feverMult = STATE.isFever ? feverBaseMult : 1.0;
+            const comboMult = 1 + Math.min(STATE.combo, 200) * 0.015;
+            const isCrit = Math.random() < (0.15 + powerLv * 0.01);
+            const critMult = isCrit ? (2.2 + STATE.skills.big_bang * 1.2) : 1.0;
+
+            let finalDmg = Math.floor(effectiveDmg * feverMult * comboMult * critMult);
+
+            // 確率で「地殻大粉砕（SHATTER）」発動！（スキルツリーで確率＆割合追撃強化）
+            const shatterChance = Math.min(0.40, 0.03 + powerLv * 0.006 + STATE.skills.shatter_plus * 0.02 + (STATE.isFever ? 0.06 : 0));
+            const isShatter = Math.random() < shatterChance;
+            if (isShatter) {
+                const percentRatio = 0.018 + (STATE.skills.shatter_plus * 0.006);
+                const percentBonus = Math.floor(STATE.maxHp * percentRatio);
+                finalDmg += percentBonus;
+            }
+
+            STATE.hp = Math.max(0, STATE.hp - finalDmg);
+            STATE.totalRunDamage += finalDmg;
+
+            // コンボ＆フィーバー加算
+            STATE.combo++;
+            STATE.comboTimer = 2.4;
+            if (!STATE.isFever) {
+                STATE.fever = Math.min(100, STATE.fever + 2.5);
+                if (STATE.fever >= 100) activateFever();
+            }
+
+            // コイン獲得（約5分で強化しながら壊せるテンポに調整＋スキルツリー倍率）
+            const greedMult = Math.pow(1.34, STATE.upgrades.greed.lv - 1);
+            const skillCoinMult = 1 + (STATE.skills.coin_boost * 0.40);
+            const coinGain = Math.max(1, Math.floor((finalDmg / 145) * greedMult * skillCoinMult));
+            STATE.coins += coinGain;
+
+            // クリティカルやSHATTER時に低確率で💎ダイヤモンドドロップ
+            let diamondGain = 0;
+            if ((isCrit || isShatter) && Math.random() < 0.09) {
+                diamondGain = 1;
+                STATE.diamonds += diamondGain;
+            }
+
+            // 地球メッシュの物理変形＆地層ペイント
+            const localPt = earthMesh.worldToLocal(hitInfo.point.clone());
+            if (isShatter) {
+                triggerPlanetShatter(localPt, hitInfo.point, digPower);
+            } else {
+                deformEarthMesh(localPt, craterRadius, digPower);
+                const hpRatio = 1 - (STATE.hp / STATE.maxHp);
+                paintScorchOnEarth(hitInfo.uv, scorchPx, hpRatio);
+            }
+
+            // ダメージポップアップ表示
+            const screenPos = toScreenPosition(hitInfo.point);
+            let popupText = `-${formatNumber(finalDmg)}`;
+            let popupColor = "#00f3ff";
+            if (isShatter) {
+                popupText = `💥 SHATTER!! -${formatNumber(finalDmg)}`;
+                popupColor = "#ffaa00";
+            } else if (isCrit) {
+                popupText = `CRIT! -${formatNumber(finalDmg)}`;
+                popupColor = "#ff007f";
+            } else if (customLabel) {
+                popupText = `${customLabel} -${formatNumber(finalDmg)}`;
+                popupColor = "#ffee00";
+            }
+            if (diamondGain > 0) popupText += ` 💎+1`;
+            spawnDamagePopup(screenPos.x, screenPos.y, popupText, popupColor, isShatter || isCrit);
+
+            updateHUD();
+            SaveSystem.scheduleSave();
+
+            if (STATE.hp <= 0) {
+                triggerPlanetAnnihilation();
+            }
+        }
+
+        // 惑星完全破壊クリア演出
+        function triggerPlanetAnnihilation() {
+            if (STATE.isVictory) return;
+            STATE.isVictory = true;
+            STATE.isPointerDown = false;
+
+            SoundEngine.playExplosion();
+            addScreenShake(0.9);
+            triggerFlash(0.85);
+            spawnDebris(new THREE.Vector3(0, 0, 0), 75, 0xff8800);
+            earthGroup.visible = false;
+
+            // クリア報酬計算
+            const greedMult = Math.pow(1.34, STATE.upgrades.greed.lv - 1);
+            const skillCoinMult = 1 + (STATE.skills.coin_boost * 0.40);
+            const clearCoins = Math.floor(850 * Math.pow(1.42, STATE.worldLevel - 1) * greedMult * skillCoinMult);
+            const clearDiamonds = 8 + (STATE.worldLevel * 4);
+
+            STATE.coins += clearCoins;
+            STATE.diamonds += clearDiamonds;
+
+            // 到達済み最高レベルを更新
+            if (STATE.worldLevel + 1 > STATE.maxWorldLevel) {
+                STATE.maxWorldLevel = STATE.worldLevel + 1;
+            }
+            updateHomeWorldUI();
+            updateHUD();
+            SaveSystem.saveNow(false);
+
+            setTimeout(() => {
+                const skinObj = PLANET_SKINS.find(s => s.id === STATE.currentSkin) || PLANET_SKINS[0];
+                document.getElementById('victory-stats').textContent =
+                    `WORLD ${STATE.worldLevel} の【${skinObj.name}】を完全粉砕！`;
+                document.getElementById('reward-coins-text').textContent = `+${clearCoins.toLocaleString()}`;
+                document.getElementById('reward-diamonds-text').textContent = `+${clearDiamonds.toLocaleString()}`;
+                document.getElementById('next-world-btn').textContent = `次の惑星へ (WORLD ${STATE.worldLevel + 1}) 🚀`;
+                document.getElementById('victory-screen').classList.remove('hidden');
+            }, 900);
+        }
+
+        // --- フィーバー＆カオスガチャ ---
+        function activateFever() {
+            STATE.isFever = true;
+            STATE.feverTimer = 8.0 + (STATE.skills.fever_master * 1.5);
+            const feverMultText = (3.0 + STATE.skills.fever_master * 0.5).toFixed(1);
+            SoundEngine.playFever();
+            showEventBanner(`🔥 HYPER FEVER (DMG ${feverMultText}x) 🔥`);
+            document.getElementById('hp-bar').parentElement.classList.add('fever-active');
+        }
+
+        function endFever() {
+            STATE.isFever = false;
+            STATE.fever = 0;
+            STATE.feverTimer = 0;
+            document.getElementById('hp-bar').parentElement.classList.remove('fever-active');
+            updateHUD();
+        }
+
+        function triggerChaosEvent() {
+            if (!STATE.isPlaying || STATE.isVictory || STATE.chaosCooldown > 0) return;
+
+            STATE.chaosCooldown = 3.0;
+            const btn = document.getElementById('chaos-event-btn');
+            if (btn) btn.disabled = true;
+
+            const events = [
+                {
+                    name: "☄️ 終末のアルマゲドン流星群！！",
+                    run: () => {
+                        for (let i = 0; i < 8; i++) {
+                            setTimeout(() => {
+                                const pt = new THREE.Vector3(
+                                    (Math.random() - 0.5) * 2,
+                                    (Math.random() - 0.5) * 2,
+                                    0.6 + Math.random() * 0.8
+                                ).normalize().multiplyScalar(EARTH_RADIUS);
+                                launchMeteor({ point: pt, uv: { x: Math.random(), y: Math.random() } });
+                            }, i * 110);
+                        }
+                    }
+                },
+                {
+                    name: "🕳️ 多重ブラックホール特異点！！",
+                    run: () => {
+                        for (let i = 0; i < 3; i++) {
+                            const pt = new THREE.Vector3(
+                                (Math.random() - 0.5) * 2,
+                                (Math.random() - 0.5) * 2,
+                                0.8 + Math.random() * 0.5
+                            ).normalize().multiplyScalar(EARTH_RADIUS);
+                            spawnBlackHole({ point: pt, uv: { x: Math.random(), y: Math.random() } });
+                        }
+                    }
+                },
+                {
+                    name: "⚡ 即時 HYPER FEVER 突入！！",
+                    run: () => {
+                        STATE.fever = 100;
+                        activateFever();
+                    }
+                },
+                {
+                    name: "⚔️ 乱れ次元斬・全方位滅殺！！",
+                    run: () => {
+                        for (let i = 0; i < 5; i++) {
+                            setTimeout(() => {
+                                const pt = new THREE.Vector3(
+                                    (Math.random() - 0.5) * 2,
+                                    (Math.random() - 0.5) * 2,
+                                    0.7 + Math.random() * 0.6
+                                ).normalize().multiplyScalar(EARTH_RADIUS);
+                                executeDimensionSlash({ point: pt, uv: { x: Math.random(), y: Math.random() } });
+                            }, i * 120);
+                        }
+                    }
+                }
+            ];
+
+            const chosen = events[Math.floor(Math.random() * events.length)];
+            showEventBanner(chosen.name);
+            chosen.run();
+        }
+
+        // --- ショップ（アップグレード・惑星スキン・転生＆スキルツリー） ---
+        let currentShopTab = 'upgrades';
+
+        function calcRebirthGain() {
+            if (STATE.maxWorldLevel < 3) return 0;
+            const baseRp = Math.floor(Math.pow(STATE.maxWorldLevel - 1, 1.45) * 3);
+            const bigBangBonus = 1 + (STATE.skills.big_bang * 0.25);
+            return Math.max(3, Math.floor(baseRp * bigBangBonus));
+        }
+
+        function renderUpgradeShop() {
+            document.getElementById('modal-coins').textContent = STATE.coins.toLocaleString();
+            document.getElementById('modal-diamonds').textContent = STATE.diamonds.toLocaleString();
+            document.getElementById('modal-rp').textContent = STATE.rebirthPoints.toLocaleString();
+            document.getElementById('modal-rebirth-count').textContent = `(転生 ${STATE.rebirthCount}回)`;
+
+            const list = document.getElementById('upgrade-list');
+            const skinList = document.getElementById('skin-list');
+            const rebirthPanel = document.getElementById('rebirth-panel');
+
+            list.classList.add('hidden');
+            skinList.classList.add('hidden');
+            rebirthPanel.classList.add('hidden');
+
+            if (currentShopTab === 'upgrades') {
+                list.classList.remove('hidden');
+
+                const items = [
+                    {
+                        key: 'power',
+                        icon: '💥',
+                        name: '破壊出力 ＆ 装甲貫通掘削力',
+                        desc: `Lv.${STATE.upgrades.power.lv} (威力 & クレーター深さ +42% / 粉砕確率UP)`
+                    },
+                    {
+                        key: 'speed',
+                        icon: '⚡',
+                        name: '兵器オーバークロック (連射速度)',
+                        desc: `Lv.${STATE.upgrades.speed.lv} (クールタイム短縮 +18%)`
+                    },
+                    {
+                        key: 'auto',
+                        icon: '🛰️',
+                        name: '軌道サテライト自動砲台',
+                        desc: STATE.upgrades.auto.lv === 0 ? '未解放 (自動でレーザー追撃)' : `Lv.${STATE.upgrades.auto.lv} (自動攻撃間隔短縮 & 威力UP)`
+                    },
+                    {
+                        key: 'greed',
+                        icon: '🪙',
+                        name: '宇宙錬金術 (コイン獲得倍率)',
+                        desc: `Lv.${STATE.upgrades.greed.lv} (獲得コイン +34%)`
+                    }
+                ];
+
+                list.innerHTML = items.map(item => {
+                    const u = STATE.upgrades[item.key];
+                    const canBuy = STATE.coins >= u.cost;
+                    return `
+                        <div class="flex items-center justify-between bg-gray-800/90 border border-white/15 rounded-2xl p-3">
+                            <div class="flex items-center gap-3">
+                                <span class="text-2xl sm:text-3xl">${item.icon}</span>
+                                <div>
+                                    <div class="font-black text-sm sm:text-base text-white">${item.name}</div>
+                                    <div class="text-xs text-gray-300">${item.desc}</div>
+                                </div>
+                            </div>
+                            <button onclick="window.buyUpgrade('${item.key}')" ${canBuy ? '' : 'disabled'}
+                                class="px-4 py-2.5 rounded-xl font-black text-xs sm:text-sm whitespace-nowrap transition cursor-pointer ${canBuy ? 'bg-yellow-400 hover:bg-yellow-300 text-black shadow-lg' : 'bg-gray-700 text-gray-400 cursor-not-allowed'}">
+                                🪙 ${u.cost.toLocaleString()}
+                            </button>
+                        </div>
+                    `;
+                }).join('');
+            } else if (currentShopTab === 'skins') {
+                skinList.classList.remove('hidden');
+
+                skinList.innerHTML = PLANET_SKINS.map(skin => {
+                    const unlocked = STATE.unlockedSkins.includes(skin.id);
+                    const equipped = STATE.currentSkin === skin.id;
+                    const canBuy = STATE.diamonds >= skin.cost;
+
+                    let btnHtml = '';
+                    if (equipped) {
+                        btnHtml = `<span class="px-3 py-1.5 rounded-xl bg-cyan-500 text-black font-black text-xs">装備中 ✓</span>`;
+                    } else if (unlocked) {
+                        btnHtml = `<button onclick="window.selectSkin('${skin.id}')" class="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-black text-xs cursor-pointer">着せ替える</button>`;
+                    } else {
+                        btnHtml = `<button onclick="window.buySkin('${skin.id}')" ${canBuy ? '' : 'disabled'} class="px-3 py-1.5 rounded-xl font-black text-xs cursor-pointer ${canBuy ? 'bg-cyan-400 hover:bg-cyan-300 text-black' : 'bg-gray-700 text-gray-400 cursor-not-allowed'}">💎 ${skin.cost} で解放</button>`;
+                    }
+
+                    return `
+                        <div class="flex flex-col justify-between bg-gray-800/90 border ${equipped ? 'border-cyan-400 shadow-[0_0_15px_rgba(0,243,255,0.4)]' : 'border-white/15'} rounded-2xl p-3">
+                            <div>
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="text-2xl">${skin.icon}</span>
+                                    <span class="font-black text-sm text-white">${skin.name}</span>
+                                </div>
+                                <p class="text-[11px] text-gray-300 mb-3">${skin.desc}</p>
+                            </div>
+                            <div class="flex justify-end">${btnHtml}</div>
+                        </div>
+                    `;
+                }).join('');
+            } else if (currentShopTab === 'rebirth') {
+                rebirthPanel.classList.remove('hidden');
+
+                const gainRp = calcRebirthGain();
+                const rebirthBtn = document.getElementById('do-rebirth-btn');
+                document.getElementById('rebirth-preview-rp').textContent = `+${gainRp.toLocaleString()} RP`;
+                if (STATE.maxWorldLevel >= 3) {
+                    rebirthBtn.disabled = false;
+                    rebirthBtn.textContent = `♻️ 転生して +${gainRp} RP 獲得！`;
+                } else {
+                    rebirthBtn.disabled = true;
+                    rebirthBtn.textContent = `🔒 WORLD 3 到達で転生解放 (現在最高: WORLD ${STATE.maxWorldLevel})`;
+                }
+
+                // スキルツリーをTierごとに階層描画
+                const treeContainer = document.getElementById('skill-tree-container');
+                const tiers = [1, 2, 3, 4];
+                const tierLabels = {
+                    1: "TIER 1 : 宇宙の根源 (ルートスキル)",
+                    2: "TIER 2 : 破壊と錬金の分岐",
+                    3: "TIER 3 : 高次元テクノロジー",
+                    4: "TIER 4 : 最終奥義"
+                };
+
+                treeContainer.innerHTML = tiers.map(tier => {
+                    const nodes = SKILL_TREE_NODES.filter(n => n.tier === tier);
+                    const nodesHtml = nodes.map(node => {
+                        const lv = STATE.skills[node.id] || 0;
+                        const isMax = lv >= node.maxLv;
+                        const cost = node.baseCost + lv * node.costStep;
+                        const unlockedReq = !node.req || (STATE.skills[node.req.id] || 0) >= node.req.lv;
+                        const canBuy = unlockedReq && !isMax && STATE.rebirthPoints >= cost;
+
+                        let borderClass = 'border-white/15 bg-gray-900/90';
+                        if (!unlockedReq) borderClass = 'border-gray-700 bg-gray-950/80 opacity-60';
+                        else if (isMax) borderClass = 'border-amber-400 bg-amber-950/30';
+                        else if (lv > 0) borderClass = 'border-fuchsia-400 bg-fuchsia-950/30';
+
+                        let actionBtn = '';
+                        if (!unlockedReq) {
+                            actionBtn = `<span class="px-2.5 py-1.5 rounded-lg bg-gray-800 text-gray-400 text-[10px] font-bold">🔒 要: ${node.reqText}</span>`;
+                        } else if (isMax) {
+                            actionBtn = `<span class="px-3 py-1.5 rounded-lg bg-amber-400 text-black text-xs font-black">MAX ★</span>`;
+                        } else {
+                            actionBtn = `<button onclick="window.buySkill('${node.id}')" ${canBuy ? '' : 'disabled'} class="px-3 py-1.5 rounded-lg font-black text-xs cursor-pointer ${canBuy ? 'bg-fuchsia-500 hover:bg-fuchsia-400 text-white shadow-[0_0_12px_rgba(217,70,239,0.6)]' : 'bg-gray-700 text-gray-400 cursor-not-allowed'}">🌟 ${cost} RP</button>`;
+                        }
+
+                        return `
+                            <div class="rounded-xl border ${borderClass} p-2.5 flex flex-col justify-between">
+                                <div>
+                                    <div class="flex items-center justify-between gap-1 mb-1">
+                                        <span class="font-black text-xs sm:text-sm text-white flex items-center gap-1">
+                                            <span>${node.icon}</span>
+                                            <span>${node.name}</span>
+                                        </span>
+                                        <span class="text-[11px] font-arcade text-fuchsia-300">Lv.${lv}/${node.maxLv}</span>
+                                    </div>
+                                    <p class="text-[11px] text-gray-300 mb-2">${node.desc(lv)}</p>
+                                </div>
+                                <div class="flex justify-end">${actionBtn}</div>
+                            </div>
+                        `;
+                    }).join('');
+
+                    return `
+                        <div>
+                            <div class="text-[10px] font-black text-gray-400 tracking-wider mb-1.5 flex items-center gap-2">
+                                <span>${tierLabels[tier]}</span>
+                                <span class="flex-1 h-px bg-white/10"></span>
+                            </div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${nodesHtml}</div>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+
+        window.buySkill = function(skillId) {
+            const node = SKILL_TREE_NODES.find(n => n.id === skillId);
+            if (!node) return;
+            const lv = STATE.skills[skillId] || 0;
+            if (lv >= node.maxLv) return;
+            const unlockedReq = !node.req || (STATE.skills[node.req.id] || 0) >= node.req.lv;
+            if (!unlockedReq) return;
+            const cost = node.baseCost + lv * node.costStep;
+            if (STATE.rebirthPoints < cost) return;
+
+            STATE.rebirthPoints -= cost;
+            STATE.skills[skillId] = lv + 1;
+            SoundEngine.playFever();
+            renderUpgradeShop();
+            updateHUD();
+            SaveSystem.saveNow(false);
+        };
+
+        document.getElementById('do-rebirth-btn').addEventListener('click', () => {
+            const gainRp = calcRebirthGain();
+            if (gainRp <= 0) return;
+
+            STATE.rebirthCount++;
+            STATE.rebirthPoints += gainRp;
+
+            // リセット対象：WORLDレベル・コイン・通常アップグレード
+            STATE.worldLevel = 1;
+            STATE.maxWorldLevel = 1;
+            STATE.armorHardness = 1.0;
+            STATE.maxHp = STATE.baseMaxHp;
+            STATE.hp = STATE.baseMaxHp;
+            STATE.coins = STATE.skills.start_fund * 2500;
+            STATE.upgrades = {
+                power: { lv: 1, cost: 350 },
+                speed: { lv: 1, cost: 550 },
+                auto:  { lv: 0, cost: 800 },
+                greed: { lv: 1, cost: 650 }
+            };
+            STATE.combo = 0;
+            STATE.isVictory = false;
+            earthGroup.visible = true;
+
+            SoundEngine.playFever();
+            triggerFlash(0.85);
+            buildEarth();
+            updateHomeWorldUI();
+            updateHUD();
+            renderUpgradeShop();
+            document.getElementById('victory-screen').classList.add('hidden');
+            showEventBanner(`♻️ REBIRTH COMPLETE! +${gainRp} RP 獲得！`);
+            SaveSystem.saveNow(false);
+        });
+
+        window.buyUpgrade = function(key) {
+            const u = STATE.upgrades[key];
+            if (!u || STATE.coins < u.cost) return;
+            STATE.coins -= u.cost;
+            u.lv++;
+            u.cost = Math.floor(u.cost * 1.65);
+            SoundEngine.playFever();
+            renderUpgradeShop();
+            updateHUD();
+            SaveSystem.saveNow(false);
+        };
+
+        window.buySkin = function(skinId) {
+            const skin = PLANET_SKINS.find(s => s.id === skinId);
+            if (!skin || STATE.unlockedSkins.includes(skinId) || STATE.diamonds < skin.cost) return;
+            STATE.diamonds -= skin.cost;
+            STATE.unlockedSkins.push(skinId);
+            STATE.currentSkin = skinId;
+            SoundEngine.playFever();
+            buildEarth();
+            renderUpgradeShop();
+            updateHUD();
+            SaveSystem.saveNow(false);
+        };
+
+        window.selectSkin = function(skinId) {
+            if (!STATE.unlockedSkins.includes(skinId)) return;
+            STATE.currentSkin = skinId;
+            buildEarth();
+            renderUpgradeShop();
+            updateHUD();
+            SaveSystem.saveNow(false);
+        };
+
+        // --- UI・演出ヘルパー ---
+        function formatNumber(num) {
+            if (num >= 1e12) return (num / 1e12).toFixed(2) + "T";
+            if (num >= 1e9) return (num / 1e9).toFixed(2) + "B";
+            if (num >= 1e6) return (num / 1e6).toFixed(2) + "M";
+            if (num >= 1e3) return (num / 1e3).toFixed(1) + "K";
+            return num.toString();
+        }
+
+        function toScreenPosition(vec3) {
+            const v = vec3.clone().project(camera);
+            return {
+                x: (v.x * 0.5 + 0.5) * window.innerWidth,
+                y: (-(v.y * 0.5) + 0.5) * window.innerHeight
+            };
+        }
+
+        function spawnDamagePopup(x, y, text, color, isBig) {
+            const el = document.createElement('div');
+            el.className = 'damage-popup';
+            el.style.left = `${x + (Math.random() - 0.5) * 30}px`;
+            el.style.top = `${y + (Math.random() - 0.5) * 30}px`;
+            el.style.color = color;
+            el.style.fontSize = isBig ? '24px' : '16px';
+            el.textContent = text;
+            document.body.appendChild(el);
+            setTimeout(() => el.remove(), 850);
+        }
+
+        function showEventBanner(text) {
+            const banner = document.getElementById('event-banner');
+            const label = document.getElementById('event-banner-text');
+            label.textContent = text;
+            banner.classList.remove('hidden');
+            setTimeout(() => banner.classList.add('hidden'), 1800);
+        }
+
+        function addScreenShake(amount) {
+            STATE.shakeIntensity = Math.min(1.2, STATE.shakeIntensity + amount);
+        }
+
+        function triggerFlash(opacity) {
+            const overlay = document.getElementById('flash-overlay');
+            overlay.style.opacity = opacity;
+            setTimeout(() => { overlay.style.opacity = '0'; }, 80);
+        }
+
+        function updateHUD() {
+            const skinObj = PLANET_SKINS.find(s => s.id === STATE.currentSkin) || PLANET_SKINS[0];
+            document.getElementById('world-level-text').textContent = `WORLD ${STATE.worldLevel}`;
+            document.getElementById('planet-skin-badge').textContent = `${skinObj.icon} ${skinObj.name.split(' ')[0]}`;
+            document.getElementById('planet-hp-label').textContent = `${skinObj.icon} ${skinObj.name.split(' ')[0]}残存質量`;
+            document.getElementById('armor-text').textContent = `🛡️ 装甲硬度 ${STATE.armorHardness.toFixed(2)}x`;
+
+            document.getElementById('coin-text').textContent = formatNumber(STATE.coins);
+            document.getElementById('diamond-text').textContent = STATE.diamonds.toLocaleString();
+            document.getElementById('rp-text').textContent = STATE.rebirthPoints.toLocaleString();
+            document.getElementById('combo-text').textContent = `${STATE.combo} HIT`;
+
+            const pct = Math.max(0, (STATE.hp / STATE.maxHp) * 100);
+            document.getElementById('hp-percent-text').textContent = `${pct.toFixed(1)}%`;
+            document.getElementById('hp-bar').style.width = `${pct}%`;
+
+            document.getElementById('fever-bar').style.width = `${STATE.fever}%`;
+            document.getElementById('fever-label').textContent = STATE.isFever ? "🔥 HYPER FEVER!" : "⚡ FEVER";
+        }
+
+        // --- ボタン＆ホーム画面WORLDレベル選択イベント ---
+        function updateHomeWorldUI() {
+            const labelEl = document.getElementById('home-world-label');
+            const specEl = document.getElementById('home-world-spec');
+            const prevBtn = document.getElementById('home-world-prev');
+            const nextBtn = document.getElementById('home-world-next');
+            const startBtn = document.getElementById('start-btn');
+
+            const hpMult = (Math.pow(1.95, STATE.worldLevel - 1)).toFixed(1);
+            const armorMult = (Math.pow(1.60, STATE.worldLevel - 1)).toFixed(2);
+
+            if (labelEl) labelEl.textContent = `WORLD ${STATE.worldLevel}`;
+            if (specEl) specEl.textContent = `HP ${hpMult}x / 装甲硬度 ${armorMult}x (最高: WORLD ${STATE.maxWorldLevel})`;
+            if (prevBtn) prevBtn.disabled = STATE.worldLevel <= 1;
+            if (nextBtn) nextBtn.disabled = STATE.worldLevel >= STATE.maxWorldLevel;
+            if (startBtn) startBtn.textContent = `WORLD ${STATE.worldLevel} の破壊を開始 🚀💥`;
+        }
+
+        document.getElementById('home-world-prev').addEventListener('click', () => {
+            if (STATE.worldLevel > 1) {
+                STATE.worldLevel--;
+                STATE.armorHardness = +(Math.pow(1.60, STATE.worldLevel - 1)).toFixed(2);
+                STATE.maxHp = Math.floor(STATE.baseMaxHp * Math.pow(1.95, STATE.worldLevel - 1));
+                STATE.hp = STATE.maxHp;
+                updateHomeWorldUI();
+                buildEarth();
+            }
+        });
+
+        document.getElementById('home-world-next').addEventListener('click', () => {
+            if (STATE.worldLevel < STATE.maxWorldLevel) {
+                STATE.worldLevel++;
+                STATE.armorHardness = +(Math.pow(1.60, STATE.worldLevel - 1)).toFixed(2);
+                STATE.maxHp = Math.floor(STATE.baseMaxHp * Math.pow(1.95, STATE.worldLevel - 1));
+                STATE.hp = STATE.maxHp;
+                updateHomeWorldUI();
+                buildEarth();
+            }
+        });
+
+        document.getElementById('open-home-btn').addEventListener('click', () => {
+            STATE.isPlaying = false;
+            STATE.isPointerDown = false;
+            updateHomeWorldUI();
+            document.getElementById('hud').classList.add('hidden');
+            document.getElementById('start-screen').classList.remove('hidden');
+            SaveSystem.saveNow(false);
+        });
+
+        document.querySelectorAll('.weapon-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.weapon-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                STATE.selectedWeapon = btn.dataset.weapon;
+            });
+        });
+
+        document.getElementById('toggle-rotate-btn').addEventListener('click', (e) => {
+            STATE.autoRotate = !STATE.autoRotate;
+            e.currentTarget.textContent = STATE.autoRotate ? "🔄 自転ON" : "⏸️ 自転OFF";
+        });
+
+        document.getElementById('toggle-sound-btn').addEventListener('click', (e) => {
+            STATE.soundEnabled = !STATE.soundEnabled;
+            e.currentTarget.textContent = STATE.soundEnabled ? "🔊 音ON" : "🔇 音OFF";
+        });
+
+        document.getElementById('chaos-event-btn').addEventListener('click', triggerChaosEvent);
+
+        document.getElementById('open-upgrade-btn').addEventListener('click', () => {
+            renderUpgradeShop();
+            document.getElementById('upgrade-modal').classList.remove('hidden');
+        });
+
+        document.getElementById('victory-shop-btn').addEventListener('click', () => {
+            renderUpgradeShop();
+            document.getElementById('upgrade-modal').classList.remove('hidden');
+        });
+
+        document.getElementById('close-upgrade-btn').addEventListener('click', () => {
+            document.getElementById('upgrade-modal').classList.add('hidden');
+        });
+
+        document.getElementById('tab-upgrades-btn').addEventListener('click', (e) => {
+            currentShopTab = 'upgrades';
+            e.currentTarget.className = "py-2 rounded-xl bg-yellow-500 text-black font-black text-xs sm:text-sm cursor-pointer";
+            document.getElementById('tab-skins-btn').className = "py-2 rounded-xl bg-gray-800 text-cyan-300 font-black text-xs sm:text-sm border border-cyan-500/40 cursor-pointer";
+            document.getElementById('tab-rebirth-btn').className = "py-2 rounded-xl bg-gray-800 text-fuchsia-300 font-black text-xs sm:text-sm border border-fuchsia-500/40 cursor-pointer";
+            renderUpgradeShop();
+        });
+
+        document.getElementById('tab-skins-btn').addEventListener('click', (e) => {
+            currentShopTab = 'skins';
+            e.currentTarget.className = "py-2 rounded-xl bg-cyan-400 text-black font-black text-xs sm:text-sm cursor-pointer";
+            document.getElementById('tab-upgrades-btn').className = "py-2 rounded-xl bg-gray-800 text-yellow-300 font-black text-xs sm:text-sm border border-yellow-500/40 cursor-pointer";
+            document.getElementById('tab-rebirth-btn').className = "py-2 rounded-xl bg-gray-800 text-fuchsia-300 font-black text-xs sm:text-sm border border-fuchsia-500/40 cursor-pointer";
+            renderUpgradeShop();
+        });
+
+        document.getElementById('tab-rebirth-btn').addEventListener('click', (e) => {
+            currentShopTab = 'rebirth';
+            e.currentTarget.className = "py-2 rounded-xl bg-fuchsia-500 text-white font-black text-xs sm:text-sm cursor-pointer";
+            document.getElementById('tab-upgrades-btn').className = "py-2 rounded-xl bg-gray-800 text-yellow-300 font-black text-xs sm:text-sm border border-yellow-500/40 cursor-pointer";
+            document.getElementById('tab-skins-btn').className = "py-2 rounded-xl bg-gray-800 text-cyan-300 font-black text-xs sm:text-sm border border-cyan-500/40 cursor-pointer";
+            renderUpgradeShop();
+        });
+
+        document.getElementById('manual-save-btn').addEventListener('click', () => SaveSystem.saveNow(true));
+        document.getElementById('reset-data-btn').addEventListener('click', () => {
+            SaveSystem.resetProgress();
+            renderUpgradeShop();
+        });
+
+        function startGame(isNextWorld = false) {
+            SoundEngine.init();
+            STATE.isPlaying = true;
+            STATE.isVictory = false;
+
+            if (isNextWorld) {
+                STATE.worldLevel++;
+                if (STATE.worldLevel > STATE.maxWorldLevel) {
+                    STATE.maxWorldLevel = STATE.worldLevel;
+                }
+                STATE.armorHardness = +(Math.pow(1.60, STATE.worldLevel - 1)).toFixed(2);
+                STATE.maxHp = Math.floor(STATE.baseMaxHp * Math.pow(1.95, STATE.worldLevel - 1));
+                STATE.hp = STATE.maxHp;
+            } else {
+                STATE.armorHardness = +(Math.pow(1.60, STATE.worldLevel - 1)).toFixed(2);
+                STATE.maxHp = Math.floor(STATE.baseMaxHp * Math.pow(1.95, STATE.worldLevel - 1));
+                if (STATE.hp <= 0 || STATE.hp > STATE.maxHp) {
+                    STATE.hp = STATE.maxHp;
+                }
+            }
+
+            STATE.combo = 0;
+            earthGroup.visible = true;
+            buildEarth();
+            updateHomeWorldUI();
+            updateHUD();
+
+            document.getElementById('start-screen').classList.add('hidden');
+            document.getElementById('victory-screen').classList.add('hidden');
+            document.getElementById('hud').classList.remove('hidden');
+            SaveSystem.saveNow(false);
+        }
+
+        document.getElementById('start-btn').addEventListener('click', () => startGame(false));
+        document.getElementById('next-world-btn').addEventListener('click', () => startGame(true));
+
+        // --- メインアニメーションループ ---
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const dt = Math.min(0.05, clock.getDelta());
+            const elapsed = clock.getElapsedTime();
+
+            // クールタイム更新
+            if (STATE.fireCooldown > 0) STATE.fireCooldown -= dt;
+
+            if (STATE.chaosCooldown > 0) {
+                STATE.chaosCooldown = Math.max(0, STATE.chaosCooldown - dt);
+                const btn = document.getElementById('chaos-event-btn');
+                if (btn) {
+                    if (STATE.chaosCooldown > 0) {
+                        btn.textContent = `⏳ ${STATE.chaosCooldown.toFixed(1)}s`;
+                    } else {
+                        btn.disabled = false;
+                        btn.textContent = `🎲 カオスガチャ`;
+                    }
+                }
+            }
+
+            // 長押し連射処理（ドラッグ中でなければ連続攻撃）
+            if (STATE.isPlaying && !STATE.isVictory && STATE.isPointerDown && !STATE.isDraggingGlobe) {
+                fireSelectedWeapon(STATE.lastPointerPos.x, STATE.lastPointerPos.y);
+            }
+
+            // 自動サテライト砲台（スキルツリー「自律衛星ネットワーク」反映）
+            if (STATE.isPlaying && !STATE.isVictory && STATE.upgrades.auto.lv > 0) {
+                STATE.autoTurretTimer -= dt;
+                if (STATE.autoTurretTimer <= 0) {
+                    const lv = STATE.upgrades.auto.lv;
+                    const skillSpeedBonus = 1 + (STATE.skills.auto_overdrive * 0.2);
+                    const skillDmgMult = 1 + (STATE.skills.auto_overdrive * 0.6);
+                    STATE.autoTurretTimer = Math.max(0.14, 1.25 / ((1 + lv * 0.25) * skillSpeedBonus));
+                    const pt = new THREE.Vector3(
+                        (Math.random() - 0.5) * 2,
+                        (Math.random() - 0.5) * 2,
+                        0.8 + Math.random() * 0.5
+                    ).normalize().multiplyScalar(EARTH_RADIUS);
+                    fireLaserBeam(pt);
+                    applyDamage({ point: pt, uv: { x: Math.random(), y: Math.random() } }, Math.floor(480 * lv * skillDmgMult), 0.18, 12);
+                }
+            }
+
+            // コンボ＆フィーバータイマー
+            if (STATE.combo > 0) {
+                STATE.comboTimer -= dt;
+                if (STATE.comboTimer <= 0) {
+                    STATE.combo = 0;
+                    updateHUD();
+                }
+            }
+            if (STATE.isFever) {
+                STATE.feverTimer -= dt;
+                const maxFeverDur = 8.0 + (STATE.skills.fever_master * 1.5);
+                STATE.fever = (STATE.feverTimer / maxFeverDur) * 100;
+                if (STATE.feverTimer <= 0) endFever();
+                updateHUD();
+            }
+
+            // 地球の自転＆雲の流れ
+            if (STATE.autoRotate && !STATE.isDraggingGlobe) {
+                earthGroup.rotation.y += dt * (STATE.isFever ? 0.55 : 0.16);
+            }
+            if (cloudMesh) {
+                cloudMesh.rotation.y += dt * 0.06;
+            }
+
+            // 頂点法線＆テクスチャのバッチ同期（軽量化）
+            if ((meshNeedsUpdate || texNeedsUpdate) && elapsed - lastMeshSyncTime > 0.12) {
+                if (meshNeedsUpdate && earthMesh) {
+                    earthMesh.geometry.computeVertexNormals();
+                    meshNeedsUpdate = false;
+                }
+                if (texNeedsUpdate && earthTexture) {
+                    earthTexture.needsUpdate = true;
+                    texNeedsUpdate = false;
+                }
+                lastMeshSyncTime = elapsed;
+            }
+
+            // エフェクト更新
+            for (let i = activeEffects.length - 1; i >= 0; i--) {
+                const eff = activeEffects[i];
+                if (eff.type === 'beam' || eff.type === 'shockwave') {
+                    eff.life -= dt;
+                    const ratio = Math.max(0, eff.life / eff.maxLife);
+                    eff.mesh.material.opacity = ratio;
+                    if (eff.type === 'shockwave') {
+                        const s = 1 + (1 - ratio) * eff.maxScale * 4;
+                        eff.mesh.scale.set(s, s, s);
+                    }
+                    if (eff.life <= 0) {
+                        scene.remove(eff.mesh);
+                        activeEffects.splice(i, 1);
+                    }
+                } else if (eff.type === 'projectile') {
+                    eff.progress += dt * eff.speed;
+                    if (eff.progress >= 0) {
+                        const t = Math.min(1, eff.progress);
+                        eff.mesh.position.lerpVectors(eff.start, eff.end, t);
+                        eff.mesh.rotation.x += dt * 10;
+                        eff.mesh.rotation.y += dt * 10;
+                        if (t >= 1) {
+                            eff.onImpact();
+                            scene.remove(eff.mesh);
+                            activeEffects.splice(i, 1);
+                        }
+                    }
+                } else if (eff.type === 'blackhole') {
+                    eff.life -= dt;
+                    eff.tickTimer += dt;
+                    eff.mesh.rotation.z += dt * 12;
+                    if (eff.tickTimer >= 0.25) {
+                        eff.tickTimer = 0;
+                        applyDamage(eff.hitInfo, 1300, 0.35, 22, "🕳️ GRAVITY CRUSH");
+                        spawnDebris(eff.hitInfo.point, 5, 0xaa00ff);
+                    }
+                    if (eff.life <= 0) {
+                        spawnShockwave(eff.hitInfo.point, 0xaa00ff, 1.8);
+                        scene.remove(eff.mesh);
+                        activeEffects.splice(i, 1);
+                    }
+                }
+            }
+
+            // 破片パーティクル更新
+            for (let i = activeDebris.length - 1; i >= 0; i--) {
+                const d = activeDebris[i];
+                d.life -= dt;
+                d.mesh.position.addScaledVector(d.vel, dt);
+                d.mesh.rotation.x += d.rotVel.x * dt;
+                d.mesh.rotation.y += d.rotVel.y * dt;
+                d.mesh.scale.multiplyScalar(0.96);
+                if (d.life <= 0) {
+                    scene.remove(d.mesh);
+                    activeDebris.splice(i, 1);
+                }
+            }
+
+            // カメラシェイク
+            if (STATE.shakeIntensity > 0) {
+                camera.position.x = (Math.random() - 0.5) * STATE.shakeIntensity * 0.35;
+                camera.position.y = 0.4 + (Math.random() - 0.5) * STATE.shakeIntensity * 0.35;
+                STATE.shakeIntensity = Math.max(0, STATE.shakeIntensity - dt * 2.5);
+            } else {
+                camera.position.x = 0;
+                camera.position.y = 0.4;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        window.onload = async function () {
+            updateHomeWorldUI();
+            await SaveSystem.init();
+            animate();
+        };
+    </script>
+</body>
+</html>
