@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>PLANET BREAKER - 3D地球破壊カオスゲーム</title>
+    <link rel="icon" href="data:,">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=M+PLUS+Rounded+1c:wght@700;900&display=swap" rel="stylesheet">
     <style>
         * {
@@ -765,6 +765,16 @@
             async init() {
                 if (this.initialized) return;
                 try {
+                    // 音声ライブラリはスタート操作後に読み込み、初期表示時のAudioContext警告を防ぐ
+                    if (!window.Tone) {
+                        await new Promise((resolve, reject) => {
+                            const script = document.createElement("script");
+                            script.src = "https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js";
+                            script.onload = resolve;
+                            script.onerror = () => reject(new Error("Tone.jsの読み込みに失敗しました"));
+                            document.head.appendChild(script);
+                        });
+                    }
                     await Tone.start();
                     this.laserSynth = new Tone.PolySynth(Tone.Synth, {
                         oscillator: { type: "sawtooth" },
